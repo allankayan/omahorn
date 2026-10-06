@@ -51,7 +51,7 @@ ShellRoot {
     service: service
     manifest: ({ id: "omaboard" })
     grabKeyboard: root.handsOn
-    targetScreen: root.handsOn ? null : root.quietScreen
+    targetScreen: root.handsOn || Quickshell.env("OMABOARD_DEV_SCREEN") === "auto" ? null : root.quietScreen
   }
 
   // Simulated key presses, so the board's keyboard handling can be driven
