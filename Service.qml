@@ -77,8 +77,10 @@ Item {
   // Apps recording a microphone right now, which is who hears an injected
   // sound: [{ node, app, binary }].
   property var injectTargets: []
-  // Who hears the sounds, whichever the routing.
-  readonly property var listeners: injecting ? injectTargets : (audio.listeners || [])
+  // Who hears the sounds, whichever the routing: [{ app, binary, label }].
+  readonly property var listeners: (injecting ? injectTargets : (audio.listeners || [])).map(function(l) {
+    return { app: l.app, binary: l.binary || "", label: Library.appLabel(l.app, l.binary) }
+  })
 
   property var playing: []
   readonly property bool isPlaying: playing.length > 0
@@ -873,7 +875,7 @@ Item {
     var next = seenApps.slice()
     for (var i = 0; i < injectTargets.length; i++) {
       var t = injectTargets[i]
-      if (!next.some(function(a) { return a.app === t.app })) next.push({ app: t.app, binary: t.binary })
+      if (!next.some(function(a) { return a.app === t.app })) next.push({ app: t.app, binary: t.binary, label: Library.appLabel(t.app, t.binary) })
     }
     if (next.length !== seenApps.length) seenApps = next
   }
@@ -1229,7 +1231,7 @@ Item {
       sounds: sounds.length,
       playing: playing.map(function(p) { return p.name }),
       routing: config.routing,
-      listeners: listeners.map(function(l) { return l.app }),
+      listeners: listeners.map(function(l) { return l.label }),
       mic: { present: audio.present, default: audio.isDefault, passthrough: audio.mic, error: audio.error },
       hotkeys: shortcuts.map(function(s) { return { keys: s.label, action: s.action, path: s.path || "" } }),
       bound: appliedKeys,

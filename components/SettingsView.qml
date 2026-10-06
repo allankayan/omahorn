@@ -42,7 +42,7 @@ Item {
     if (!service) return []
     var live = service.injectTargets.map(function(t) { return t.app })
     return service.seenApps.map(function(a) {
-      return { app: a.app, binary: a.binary, live: live.indexOf(a.app) !== -1 }
+      return { app: a.app, binary: a.binary, label: a.label || a.app, live: live.indexOf(a.app) !== -1 }
     })
   }
 
@@ -359,7 +359,7 @@ Item {
           width: parent.width
           textFormat: Text.PlainText
           text: row.entry.type === "folder" ? row.entry.folder.path
-            : (row.entry.type === "app" ? row.entry.app.app : row.entry.label)
+            : (row.entry.type === "app" ? row.entry.app.label : row.entry.label)
           color: row.hasCursor ? root.selectedText : root.foreground
           font.family: root.fontFamily
           font.pixelSize: Style.font.subtitle
@@ -377,7 +377,7 @@ Item {
               ? "Straight into apps recording a microphone, like Soundux; nothing new in your devices"
               : "Through an Omaboard Microphone device that apps pick as their input"
             if (d.type === "app") return (d.app.live ? "Recording now" : "Not recording right now")
-              + (d.app.binary && d.app.binary !== d.app.app ? " · " + d.app.binary : "")
+              + (d.app.app !== d.app.label ? " · " + d.app.app : (d.app.binary ? " · " + d.app.binary : ""))
             if (d.type === "folder") return (d.folder.recursive ? "Includes subfolders" : "This folder only") + (row.hasCursor ? "  ·  Enter open · R subfolders · Del remove" : "")
             if (d.type === "hotkey") return row.hasCursor ? "Enter change · Del clear" : ""
             return d.description || ""

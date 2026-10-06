@@ -472,7 +472,7 @@ Item {
               Button {
                 id: micChip
                 readonly property bool ok: !!root.service && root.service.micReady
-                readonly property var apps: root.service ? root.service.listeners.map(function(l) { return l.app }) : []
+                readonly property var apps: root.service ? root.service.listeners.map(function(l) { return l.label }) : []
                 anchors.verticalCenter: parent.verticalCenter
                 foreground: ok ? root.foreground : Color.urgent
                 fontFamily: root.fontFamily

@@ -118,3 +118,14 @@ test("decodedPath changes when the file does", () => {
   assert.match(Library.decodedPath("/c", a), /^\/c\/decoded\/[0-9a-f]{8}\.opus$/)
   assert.notEqual(Library.decodedPath("/c", a), Library.decodedPath("/c", b))
 })
+
+test("appLabel names WebRTC apps by their binary", () => {
+  assert.equal(Library.appLabel("WEBRTC VoiceEngine", "Discord"), "Discord")
+  assert.equal(Library.appLabel("Chromium input", "chromium"), "Chromium")
+  assert.equal(Library.appLabel("Zen", "zen-bin"), "Zen")
+  assert.equal(Library.appLabel("WEBRTC VoiceEngine", "/opt/vesktop/vesktop"), "Vesktop")
+  assert.equal(Library.appLabel("OBS Studio", "obs"), "OBS Studio")
+  assert.equal(Library.appLabel("", "mumble"), "Mumble")
+  assert.equal(Library.appLabel("mygame", ""), "Mygame")
+  assert.equal(Library.appLabel("", ""), "Unknown app")
+})
