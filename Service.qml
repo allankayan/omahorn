@@ -8,6 +8,7 @@ import "components"
 import "lib/Library.js" as Library
 import "lib/Hotkeys.js" as Hotkeys
 import "lib/Config.js" as Config
+import "lib/Glyphs.js" as Glyphs
 
 // Omaboard's headless half: the sound library, playback, the virtual
 // microphone and global hotkeys. The board, the bar widget and IPC all drive
@@ -45,7 +46,6 @@ Item {
 
   readonly property string vmicName: "omaboard_mic"
   readonly property string captureName: "input.omaboard_mic"
-  readonly property string glyph: "󰎈"
   readonly property string bindPrefix: "Omaboard: "
 
   // ------------------------------------------------------------- state
@@ -111,7 +111,7 @@ Item {
   function notify(title, body) {
     Quickshell.execDetached(["sh", "-c",
       'if command -v omarchy-notification-send >/dev/null; then exec omarchy-notification-send --app-name Omaboard -g "$1" "$2" "$3"; '
-      + 'else exec notify-send -a Omaboard "$2" "$3"; fi', "sh", root.glyph, title, body])
+      + 'else exec notify-send -a Omaboard "$2" "$3"; fi', "sh", Glyphs.app, title, body])
   }
 
   Timer {
@@ -193,8 +193,14 @@ Item {
     onLoaded: root.loadConfigText(text())
     onLoadFailed: function(error) {
       if (root.ready) return
-      // No config yet: first run. Look for a Soundux library to start from.
-      sounduxFile.path = root.sounduxConfigPath
+      if (error === FileViewError.FileNotFound) {
+        // No config yet: first run. Look for a Soundux library to start from.
+        sounduxFile.path = root.sounduxConfigPath
+        return
+      }
+      // Unreadable but present: run on defaults and leave the file alone.
+      root.report("Could not read config.json (" + FileViewError.toString(error) + "); using defaults")
+      root.applyConfig(Config.defaults(), false)
     }
     // Editors and shell redirects write in steps; read once they settle.
     onFileChanged: configReloadTimer.restart()
@@ -246,7 +252,9 @@ Item {
 
   // Adopts a config and runs whatever its changes require. `save` writes it
   // back; edits made to the file by hand arrive here with save = false.
-  function applyConfig(next, save) {
+  // `adopted` marks a change the system already made (the user picked another
+  // default input elsewhere), which must not be pushed back to it.
+  function applyConfig(next, save, adopted) {
     var previous = config
     var wasReady = ready
     config = next
@@ -266,25 +274,26 @@ Item {
     if (JSON.stringify(previous.folders) !== JSON.stringify(next.folders)) rescan()
     else if (JSON.stringify(previous.sounds) !== JSON.stringify(next.sounds)) sounds = mergeSoundSettings(sounds, next)
     if (previous.mic !== next.mic) audioCommand(["set-mic", next.mic])
+    if (previous.defaultMic !== next.defaultMic && !adopted) {
+      audioCommand(["set-default", next.defaultMic ? "on" : "off"], function(status) {
+        if (next.defaultMic && status.isDefault) saveState({ defaultApplied: true })
+        if (!status.ok) report(status.error)
+      })
+    }
     if (JSON.stringify(previous.hotkeys) !== JSON.stringify(next.hotkeys)
         || JSON.stringify(Config.usedKeys(previous)) !== JSON.stringify(Config.usedKeys(next))) syncBinds()
   }
 
   function setSetting(key, value) {
     if (!ready) return
-    var next = Config.withSetting(config, key, value)
-    applyConfig(next, true)
-    if (key === "defaultMic") audioCommand(["set-default", next.defaultMic ? "on" : "off"], function(status) {
-      if (next.defaultMic && status.isDefault) saveState({ defaultApplied: true })
-      if (!status.ok) report(status.error)
-    })
+    applyConfig(Config.withSetting(config, key, value), true)
   }
 
   // The same setting without touching the system, when the system already
   // changed (the user picked another default input elsewhere).
   function adoptSetting(key, value) {
     if (!ready || config[key] === value) return
-    applyConfig(Config.withSetting(config, key, value), true)
+    applyConfig(Config.withSetting(config, key, value), true, true)
   }
 
   function mergeSoundSettings(list, cfg) {
@@ -885,6 +894,8 @@ Item {
     path: root.bindsPath
     printErrors: false
     atomicWrites: true
+    // Read once, at the first sync, and it is a few lines: blocking is fine.
+    blockLoading: true
   }
 
   property var evalQueue: []
