@@ -20,6 +20,8 @@ Item {
 
   // Asks the board to record a hotkey: owner is { action } or { path }.
   signal captureRequested(var owner, string title, var current)
+  // The folder path field let go of the keyboard; the board takes it back.
+  signal focusReleased()
 
   readonly property var config: service ? service.config : null
   readonly property var audio: service ? service.audio : null
@@ -27,8 +29,8 @@ Item {
 
   property int cursorIndex: 1
 
-  // Fake bar for PanelSlider, which takes its palette from a bar object.
-  readonly property QtObject palette: QtObject {
+  // Fake bar for PanelSlider, which takes its colors from a bar object.
+  readonly property QtObject sliderBar: QtObject {
     property color foreground: root.foreground
     property color background: root.background
   }
@@ -72,8 +74,16 @@ Item {
     flick.contentY = 0
   }
 
+  // Hidden items keep the keyboard in Qt, so the field must give it back
+  // explicitly whenever the cursor leaves it.
+  function releaseField() {
+    if (!folderField.activeFocus) return
+    folderField.focus = false
+    focusReleased()
+  }
+
   function moveCursor(delta) {
-    if (folderField.activeFocus) folderField.focus = false
+    releaseField()
     var i = cursorIndex
     for (var steps = 0; steps < rows.length; steps++) {
       i = Math.max(0, Math.min(rows.length - 1, i + delta))
@@ -120,6 +130,7 @@ Item {
   }
 
   function adjust(delta) {
+    releaseField()
     var row = rows[cursorIndex]
     if (!row || !service) return
     if (row.type === "slider") service.setSetting(row.key, Math.max(0, Math.min(row.max, config[row.key] + delta * 5)))
@@ -130,6 +141,7 @@ Item {
   function activate() {
     var row = rows[cursorIndex]
     if (!row || !service) return
+    if (row.type !== "addFolder") releaseField()
     if (row.type === "toggle") service.setSetting(row.key, !config[row.key])
     else if (row.type === "mic") cycleMic(1)
     else if (row.type === "hotkey") captureRequested({ action: row.action }, row.label, config.hotkeys[row.action])
@@ -138,6 +150,7 @@ Item {
   }
 
   function deleteCurrent() {
+    releaseField()
     var row = rows[cursorIndex]
     if (!row || !service) return
     if (row.type === "folder") {
@@ -296,6 +309,7 @@ Item {
         acceptedButtons: Qt.LeftButton | Qt.RightButton
         onEntered: root.cursorIndex = row.rowIndex
         onClicked: function(mouse) {
+          root.releaseField()
           root.cursorIndex = row.rowIndex
           if (mouse.button === Qt.RightButton) root.deleteCurrent()
           else if (row.entry.type !== "slider") root.activate()
@@ -370,7 +384,7 @@ Item {
             id: slider
             width: Style.space(170)
             anchors.verticalCenter: parent.verticalCenter
-            bar: root.palette
+            bar: root.sliderBar
             minimum: 0
             maximum: row.entry.max || 100
             step: 5

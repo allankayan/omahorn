@@ -108,6 +108,8 @@ Item {
   }
 
   onOpenedChanged: if (service) service.boardOpen = opened
+  // Switching pages must never leave the keyboard in a field of the old one.
+  onViewChanged: Qt.callLater(function() { keyCatcher.forceActiveFocus() })
   onServiceChanged: if (service) service.boardOpen = opened
 
   // The shell unloads the board when it closes; never leave the hotkeys
@@ -225,6 +227,7 @@ Item {
 
   function startCapture(owner, title, current) {
     if (!service) return
+    keyCatcher.forceActiveFocus()
     captureOwner = owner
     capture.title = title
     capture.current = current
@@ -708,6 +711,7 @@ Item {
               selectedBorderSpec: root.selectedBorderSpec
               fontFamily: root.fontFamily
               onCaptureRequested: function(owner, title, current) { root.startCapture(owner, title, current) }
+              onFocusReleased: keyCatcher.forceActiveFocus()
             }
           }
 
