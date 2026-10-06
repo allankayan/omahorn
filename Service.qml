@@ -340,6 +340,75 @@ Item {
     // when nothing on disk changed.
     if (JSON.stringify(list) !== JSON.stringify(sounds)) sounds = list
     queueDecodes(list)
+    queuePeaks(list)
+  }
+
+  // ------------------------------------------------------------- waveforms
+
+  // { soundId: { key, values } }. `key` follows the file's size and mtime,
+  // so an edited sound gets a new envelope.
+  property var peaks: ({})
+  property var peaksIncoming: ({})
+  property bool peaksQueued: false
+
+  function peaksKey(sound) {
+    return Library.hash(sound.path + "|" + sound.size + "|" + sound.mtime)
+  }
+
+  function queuePeaks(list) {
+    var items = []
+    for (var i = 0; i < list.length; i++) {
+      var s = list[i]
+      var key = peaksKey(s)
+      if (peaks[s.id] && peaks[s.id].key === key) continue
+      items.push({ id: s.id, path: s.path, duration: s.duration || 0, key: key })
+    }
+    if (items.length === 0) return
+    if (peaksProc.running) {
+      peaksQueued = true
+      return
+    }
+    peaksProc.keys = {}
+    for (var j = 0; j < items.length; j++) peaksProc.keys[items[j].id] = items[j].key
+    peaksProc.exec([pluginDir + "/bin/omaboard-peaks", cacheDir, JSON.stringify(items)])
+  }
+
+  Process {
+    id: peaksProc
+    property var keys: ({})
+    stdout: SplitParser {
+      onRead: function(line) {
+        var item
+        try { item = JSON.parse(line) } catch (e) { return }
+        if (!item || typeof item.id !== "string" || !Array.isArray(item.peaks)) return
+        root.peaksIncoming[item.id] = { key: peaksProc.keys[item.id] || "", values: item.peaks }
+        peaksFlush.restart()
+      }
+    }
+    onExited: {
+      root.flushPeaks()
+      if (root.peaksQueued) {
+        root.peaksQueued = false
+        Qt.callLater(function() { root.queuePeaks(root.sounds) })
+      }
+    }
+  }
+
+  // Envelopes stream in one per line; hand them to the pads in batches.
+  Timer {
+    id: peaksFlush
+    interval: 120
+    onTriggered: root.flushPeaks()
+  }
+
+  function flushPeaks() {
+    var incoming = peaksIncoming
+    if (Object.keys(incoming).length === 0) return
+    peaksIncoming = {}
+    var next = {}
+    for (var id in peaks) next[id] = peaks[id]
+    for (var newId in incoming) next[newId] = incoming[newId]
+    peaks = next
   }
 
   // ------------------------------------------------------------- decoding

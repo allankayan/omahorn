@@ -1,0 +1,67 @@
+#!/bin/bash
+
+# Prints the loudness envelope of each sound, for the waveforms on the pads.
+#
+#   omaboard-peaks <cache-dir> '<json>'
+#
+# <json> is an array of {"id", "path", "duration", "key"}; `key` names the
+# cache file, so a changed sound gets a fresh envelope. Prints one line per
+# sound as soon as it is ready:
+#
+#   {"id": "s1234abcd", "peaks": [0, 12, 80, ...]}
+#
+# Each envelope is BUCKETS integers from 0 to 100: the loudness (RMS) of
+# each slice relative to the sound's loudest slice. Peaks would be flat for
+# most clips, which are mastered loud. Audio is decoded at a low sample
+# rate: the envelope needs the shape, not the detail, and long files stay
+# quick.
+
+set -uo pipefail
+
+readonly BUCKETS=40
+readonly RATE=2000
+
+cache_dir="${1:?usage: omaboard-peaks <cache-dir> <json>}"
+items="${2:-[]}"
+mkdir -p "$cache_dir/peaks"
+
+envelope() {
+  local file="$1" duration="$2"
+  local expected
+  expected=$(awk -v d="$duration" -v r="$RATE" 'BEGIN { n = int(d * r); print (n > 0 ? n : r) }')
+  nice -n 10 ffmpeg -nostdin -v error -i "$file" -vn -ac 1 -ar "$RATE" -f s16le - 2>/dev/null \
+    | od -An -v -t d2 -w2 \
+    | awk -v n="$BUCKETS" -v expected="$expected" '
+        BEGIN { size = int((expected + n - 1) / n); if (size < 1) size = 1 }
+        {
+          b = int(count / size); if (b >= n) b = n - 1
+          sum[b] += $1 * $1
+          seen[b]++
+          count++
+        }
+        END {
+          if (count == 0) exit 1
+          for (i = 0; i < n; i++) {
+            rms[i] = seen[i] ? sqrt(sum[i] / seen[i]) : 0
+            if (rms[i] > top) top = rms[i]
+          }
+          line = ""
+          for (i = 0; i < n; i++) {
+            p = top > 0 ? int(rms[i] * 100 / top + 0.5) : 0
+            line = line (i ? "," : "") p
+          }
+          print line
+        }'
+}
+
+while IFS=$'\t' read -r id path duration key; do
+  [[ -n $id && -n $key && -r $path ]] || continue
+  cache="$cache_dir/peaks/$key.txt"
+  if [[ ! -s $cache ]]; then
+    values=$(envelope "$path" "${duration:-0}") || continue
+    [[ $values =~ ^[0-9]+(,[0-9]+)*$ ]] || continue
+    tmp=$(mktemp "$cache.XXXXXX")
+    printf '%s\n' "$values" >"$tmp" && mv -f "$tmp" "$cache"
+  fi
+  printf '{"id":"%s","peaks":[%s]}\n' "$id" "$(head -n1 "$cache")"
+done < <(jq -r '.[] | [.id, .path, (.duration // 0 | tostring), .key] | @tsv' <<<"$items" 2>/dev/null)

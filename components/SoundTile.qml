@@ -4,8 +4,8 @@ import qs.Ui
 import "../lib/Library.js" as Library
 import "../lib/Glyphs.js" as Glyphs
 
-// One pad on the board: name, length, hotkey, favorite star, and a sweep
-// across the pad while it plays.
+// One pad on the board: name, waveform, length, hotkey and favorite star.
+// While the sound plays, the waveform fills in as it goes.
 BorderSurface {
   id: tile
 
@@ -13,6 +13,8 @@ BorderSurface {
   property bool hasCursor: false
   // { startedAt, duration, preview } while the sound plays, else null.
   property var voice: null
+  // Loudness envelope (0-100 per slice), or empty while it is computed.
+  property var peaks: []
   property color foreground: Color.foreground
   property color selectedBackground: Util.alpha(Color.foreground, 0.08)
   property color selectedText: Color.accent
@@ -62,25 +64,6 @@ BorderSurface {
 
   onVoiceChanged: syncProgress()
   Component.onCompleted: syncProgress()
-
-  Rectangle {
-    visible: tile.playing
-    anchors.left: parent.left
-    anchors.top: parent.top
-    anchors.bottom: parent.bottom
-    width: parent.width * tile.progress
-    color: Util.alpha(tile.foreground, 0.06)
-  }
-
-  Rectangle {
-    visible: tile.playing
-    anchors.left: parent.left
-    anchors.bottom: parent.bottom
-    width: parent.width * tile.progress
-    height: Math.max(2, Style.space(2))
-    color: tile.foreground
-    opacity: tile.voice && tile.voice.preview ? 0.4 : 0.85
-  }
 
   HoverHandler {
     id: hover
@@ -140,7 +123,22 @@ BorderSurface {
       }
     }
 
+    Waveform {
+      anchors.left: parent.left
+      anchors.right: parent.right
+      anchors.bottom: metaRow.top
+      anchors.bottomMargin: Style.space(6)
+      height: Style.space(16)
+      values: tile.peaks
+      playing: tile.playing
+      progress: tile.progress
+      color: tile.textColor
+      restOpacity: tile.playing ? 0.25 : 0.18
+      playedOpacity: tile.voice && tile.voice.preview ? 0.5 : 0.9
+    }
+
     Row {
+      id: metaRow
       anchors.left: parent.left
       anchors.bottom: parent.bottom
       spacing: Style.space(6)

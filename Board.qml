@@ -52,7 +52,7 @@ Item {
   property int cardWidth: Math.min(Style.space(880), panel.width - Style.gapsOut * 2)
   property int cardHeight: Math.min(Style.space(620), panel.height - Style.gapsOut * 2)
   property int tileMinWidth: Style.space(196)
-  property int tileHeight: Math.max(Style.space(76), Style.font.subtitle * 2 + Style.font.caption + Style.space(34))
+  property int tileHeight: Math.max(Style.space(96), Style.font.subtitle * 2 + Style.font.caption + Style.space(56))
   property int tileGap: Style.space(6)
 
   readonly property var sounds: service ? service.sounds : []
@@ -611,6 +611,7 @@ Item {
                   sound: cell.modelData
                   hasCursor: root.cursorActive && cell.index === root.selectedIndex
                   voice: root.voiceFor(cell.modelData.id)
+                  peaks: root.service && root.service.peaks[cell.modelData.id] ? root.service.peaks[cell.modelData.id].values : []
                   foreground: root.foreground
                   selectedBackground: root.selectedBackground
                   selectedText: root.selectedText
