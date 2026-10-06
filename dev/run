@@ -1,0 +1,53 @@
+#!/bin/bash
+
+# Runs Omaboard in its own Quickshell instance, outside omarchy-shell.
+#
+#   dev/run           start (or restart) the dev instance
+#   dev/run stop      stop it
+#   dev/run ipc ...   call its IPC, e.g. dev/run ipc toggle
+#   dev/run key K     simulate a key press on the board, e.g. ctrl+k
+#   dev/run type TXT  simulate typing into the board's search
+#   dev/run state     print the board's state
+#   dev/run log       follow its log
+#
+# Quickshell only loads QML from inside its config folder, so the instance
+# gets a small root of its own: the host shell.qml from this folder, the
+# plugin linked in, and Omarchy's Commons/Ui so the board looks exactly as
+# it does in the real shell.
+
+set -euo pipefail
+
+project="$(cd "$(dirname "$0")/.." && pwd)"
+root="${XDG_RUNTIME_DIR:-/tmp}/omaboard-dev"
+pidfile="$root/pid"
+logfile="$root/qs.log"
+omarchy_shell="${OMARCHY_PATH:-/usr/share/omarchy}/shell"
+
+stop() {
+  if [[ -f $pidfile ]] && kill -0 "$(cat "$pidfile")" 2>/dev/null; then
+    kill "$(cat "$pidfile")"
+    for _ in $(seq 20); do kill -0 "$(cat "$pidfile")" 2>/dev/null || break; sleep 0.1; done
+  fi
+  rm -f "$pidfile"
+}
+
+start() {
+  stop
+  mkdir -p "$root"
+  ln -sfn "$omarchy_shell/Commons" "$root/Commons"
+  ln -sfn "$omarchy_shell/Ui" "$root/Ui"
+  ln -sfn "$project" "$root/omaboard"
+  sed 's#import "\.\." as Omaboard#import "omaboard" as Omaboard#' "$project/dev/shell.qml" >"$root/shell.qml"
+  setsid qs -p "$root/shell.qml" >"$logfile" 2>&1 </dev/null &
+  echo $! >"$pidfile"
+  echo "dev instance $(cat "$pidfile") — log: $logfile"
+}
+
+case "${1:-start}" in
+  start) start ;;
+  stop) stop ;;
+  ipc) shift; exec qs -p "$root/shell.qml" ipc call omaboard "$@" ;;
+  key | type | state | screenName) exec qs -p "$root/shell.qml" ipc call omaboard-dev "$@" ;;
+  log) exec tail -f "$logfile" ;;
+  *) echo "usage: dev/run [start|stop|ipc <method> [args]|key <key>|type <text>|state|log]" >&2; exit 2 ;;
+esac

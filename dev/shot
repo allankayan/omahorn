@@ -1,0 +1,10 @@
+#!/bin/bash
+# Screenshot of the board card on the monitor the dev host opens it on.
+#   dev/shot out.png [width height]
+set -euo pipefail
+out="${1:?usage: dev/shot out.png [width height]}"
+w="${2:-880}"
+h="${3:-620}"
+screen="$("$(dirname "$0")/run" screenName 2>/dev/null || true)"
+read -r mx my mw mh < <(hyprctl monitors -j | jq -r --arg s "$screen" '.[] | select(if $s == "" then .focused else .name == $s end) | "\(.x) \(.y) \(.width) \(.height)"')
+grim -g "$((mx + (mw - w) / 2)),$((my + (mh - h) / 2)) ${w}x${h}" "$out"

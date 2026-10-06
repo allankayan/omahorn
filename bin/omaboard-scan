@@ -1,0 +1,144 @@
+#!/bin/bash
+
+# Lists the sounds in Omaboard's library folders as JSON lines.
+#
+# Takes the folders as a JSON array, as the first argument or on stdin:
+#   omaboard-scan '[{"path": "~/Music/Soundboard", "name": "", "recursive": true}]'
+#
+# Prints one object per sound, in folder order, each file once:
+#   {"path": "...", "folder": "...", "category": "...", "file": "...",
+#    "ext": "mp3", "size": 1234, "mtime": 1700000000, "duration": 2.5}
+#
+# Non-recursive folders contribute their own files under the folder's name.
+# Recursive ones also pull in their subfolders, each first-level subfolder
+# becoming its own category. Durations come from ffprobe and are cached by
+# path, size and mtime, so a rescan only probes new or changed files.
+
+set -uo pipefail
+
+readonly CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/omaboard"
+readonly DURATIONS="$CACHE_DIR/durations.tsv"
+readonly EXTENSIONS="wav flac ogg oga opus mp3 aiff aif m4a aac webm mka wma caf"
+
+declare -A cached_duration=()
+declare -A seen=()
+
+expand_path() {
+  local path="$1"
+  [[ $path == "~" ]] && path="$HOME"
+  [[ $path == "~/"* ]] && path="$HOME/${path#\~/}"
+  printf '%s' "${path%/}"
+}
+
+load_cache() {
+  [[ -f $DURATIONS ]] || return 0
+  local path size mtime duration
+  while IFS=$'\t' read -r path size mtime duration; do
+    [[ -n $path ]] && cached_duration["$path|$size|$mtime"]="$duration"
+  done <"$DURATIONS"
+}
+
+find_args() {
+  local first=1 ext
+  printf '%s\0' "("
+  for ext in $EXTENSIONS; do
+    ((first)) || printf '%s\0' "-o"
+    printf '%s\0' "-iname" "*.$ext"
+    first=0
+  done
+  printf '%s\0' ")"
+}
+
+# Prints "path<TAB>folder<TAB>category<TAB>size<TAB>mtime" for every sound.
+list_files() {
+  local folders_json="$1" count i path name recursive depth folder_name rel category
+  local -a matchers
+  mapfile -d '' matchers < <(find_args)
+  count=$(jq 'length' <<<"$folders_json")
+  for ((i = 0; i < count; i++)); do
+    path=$(expand_path "$(jq -r ".[$i].path // \"\"" <<<"$folders_json")")
+    name=$(jq -r ".[$i].name // \"\"" <<<"$folders_json")
+    recursive=$(jq -r ".[$i].recursive // false" <<<"$folders_json")
+    [[ -n $path && -d $path ]] || continue
+    folder_name="${name:-${path##*/}}"
+    depth=1
+    [[ $recursive == "true" ]] && depth=4
+    while IFS=$'\t' read -r -d '' file size mtime; do
+      [[ $file == *$'\n'* ]] && continue
+      [[ -n ${seen[$file]:-} ]] && continue
+      seen["$file"]=1
+      rel="${file#"$path"/}"
+      category="$folder_name"
+      [[ $rel == */* ]] && category="${rel%%/*}"
+      printf '%s\t%s\t%s\t%s\t%s\n' "$file" "$path" "$category" "$size" "${mtime%.*}"
+    done < <(find "$path" -mindepth 1 -maxdepth "$depth" \
+      -not -path '*/.*' -type f "${matchers[@]}" \
+      -printf '%p\t%s\t%T@\0' 2>/dev/null | sort -z)
+  done
+}
+
+probe() {
+  local file="$1" duration
+  duration=$(ffprobe -v error -show_entries format=duration -of default=nw=1:nk=1 "$file" 2>/dev/null | head -n1)
+  [[ $duration =~ ^[0-9]+(\.[0-9]+)?$ ]] || duration=""
+  printf '%s\t%s\n' "$file" "$duration"
+}
+
+main() {
+  local folders_json files
+  if (($# > 0)); then folders_json="$1"; else folders_json=$(cat); fi
+  if ! jq -e 'type == "array"' <<<"$folders_json" >/dev/null 2>&1; then
+    echo "omaboard-scan: expected a JSON array of folders" >&2
+    exit 2
+  fi
+
+  load_cache
+  files=$(list_files "$folders_json")
+  [[ -n $files ]] || exit 0
+
+  # Probe the files the cache does not know, a few at a time.
+  declare -A probed=()
+  MISSING_FILE=$(mktemp)
+  trap 'rm -f "$MISSING_FILE"' EXIT
+  local path folder category size mtime
+  while IFS=$'\t' read -r path folder category size mtime; do
+    [[ -n ${cached_duration["$path|$size|$mtime"]+x} ]] || printf '%s\0' "$path"
+  done <<<"$files" >"$MISSING_FILE"
+
+  if [[ -s $MISSING_FILE ]] && command -v ffprobe >/dev/null; then
+    export -f probe
+    local file duration
+    while IFS=$'\t' read -r file duration; do
+      probed["$file"]="$duration"
+    done < <(xargs -0 -P 4 -I {} bash -c 'probe "$1"' _ {} <"$MISSING_FILE")
+  fi
+
+  mkdir -p "$CACHE_DIR"
+  local cache_tmp
+  cache_tmp=$(mktemp "$CACHE_DIR/durations.XXXXXX")
+  while IFS=$'\t' read -r path folder category size mtime; do
+    local key="$path|$size|$mtime" duration
+    if [[ -n ${cached_duration[$key]+x} ]]; then
+      duration="${cached_duration[$key]}"
+    else
+      duration="${probed[$path]:-}"
+    fi
+    printf '%s\t%s\t%s\t%s\n' "$path" "$size" "$mtime" "$duration" >>"$cache_tmp"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$path" "$folder" "$category" "$size" "$mtime" "$duration"
+  done <<<"$files" | jq -R -c '
+    split("\t") as [$path, $folder, $category, $size, $mtime, $duration]
+    | ($path | split("/") | last) as $file
+    | {
+        path: $path,
+        folder: $folder,
+        category: $category,
+        file: $file,
+        ext: ($file | if test("\\.") then (split(".") | last | ascii_downcase) else "" end),
+        size: ($size | tonumber),
+        mtime: ($mtime | tonumber),
+        duration: (if ($duration // "") == "" then null else ($duration | tonumber) end)
+      }'
+  mv -f "$cache_tmp" "$DURATIONS"
+}
+
+main "$@"

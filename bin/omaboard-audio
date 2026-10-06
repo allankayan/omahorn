@@ -1,0 +1,305 @@
+#!/bin/bash
+
+# Manages Omaboard's virtual microphone through pipewire-pulse.
+#
+# A single module-remap-source does all of it. Its capture stream
+# (input.omaboard_mic) records the physical microphone passively, so the
+# device stays closed until an app records the virtual one, and its playback
+# side is the "Omaboard Microphone" source those apps pick. Sounds are mixed
+# in by playing straight into the capture stream:
+#
+#   pw-play --target input.omaboard_mic sound.ogg
+#
+# Usage:
+#   omaboard-audio status
+#   omaboard-audio ensure [<mic>|auto]    create the virtual mic when missing
+#   omaboard-audio set-mic <mic>|auto     move the passthrough to another mic
+#   omaboard-audio set-default on|off     make it the default input, or restore
+#   omaboard-audio teardown               remove the virtual mic
+#
+# Every command prints one JSON status line on stdout. Failures keep the same
+# shape with "ok": false and a human-readable "error".
+
+set -uo pipefail
+
+readonly VMIC="omaboard_mic"
+readonly CAPTURE="input.$VMIC"
+readonly DESCRIPTION="Omaboard Microphone"
+readonly STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/omaboard"
+readonly LAST_MIC_FILE="$STATE_DIR/last-mic"
+
+ERROR=""
+
+pactl_json() {
+  pactl -f json "$@" 2>/dev/null || echo "[]"
+}
+
+# Sources a passthrough may record from: real inputs and other virtual
+# sources (noise suppression, EasyEffects), never monitors or ourselves.
+candidate_sources() {
+  pactl_json list sources | jq -c --arg vmic "$VMIC" '[
+    .[]
+    | select(.name != $vmic)
+    | select((.properties["device.class"] // "") != "monitor")
+    | select((.properties["media.class"] // "Audio/Source") | startswith("Audio/Source"))
+    | {
+        name,
+        index,
+        description: (.description // .name),
+        physical: ((.properties["device.api"] // "") != "")
+      }
+  ]'
+}
+
+default_source() {
+  pactl get-default-source 2>/dev/null
+}
+
+# pactl's JSON module listing carries no index, so read the short format.
+module_index() {
+  pactl list short modules 2>/dev/null | awk -F '\t' -v vmic="$VMIC" '
+    $2 == "module-remap-source" && index(" " $3 " ", " source_name=" vmic " ") { print $1; exit }'
+}
+
+capture_output() {
+  pactl_json list source-outputs | jq -c --arg capture "$CAPTURE" '
+    [.[] | select(.properties["node.name"] == $capture) | {index, source}] | first // empty'
+}
+
+source_name_by_index() {
+  local index="$1"
+  pactl_json list sources | jq -r --argjson index "$index" '.[] | select(.index == $index) | .name' | head -n1
+}
+
+remember_mic() {
+  local mic="$1"
+  [[ -n $mic && $mic != "$VMIC" ]] || return 0
+  mkdir -p "$STATE_DIR"
+  printf '%s\n' "$mic" >"$LAST_MIC_FILE"
+}
+
+remembered_mic() {
+  [[ -f $LAST_MIC_FILE ]] && head -n1 "$LAST_MIC_FILE"
+}
+
+is_candidate() {
+  local name="$1" sources="$2"
+  [[ -n $name ]] && jq -e --arg name "$name" 'any(.[]; .name == $name)' <<<"$sources" >/dev/null
+}
+
+# The mic to pass through when none was asked for: the default input when it
+# is a real one, else the last real default we saw, else the first hardware
+# input there is.
+pick_mic() {
+  local requested="$1" sources="$2" current_default remembered
+  if [[ -n $requested && $requested != "auto" ]] && is_candidate "$requested" "$sources"; then
+    echo "$requested"
+    return
+  fi
+  current_default=$(default_source)
+  if is_candidate "$current_default" "$sources"; then
+    echo "$current_default"
+    return
+  fi
+  remembered=$(remembered_mic)
+  if is_candidate "$remembered" "$sources"; then
+    echo "$remembered"
+    return
+  fi
+  jq -r '([.[] | select(.physical)] + .)[0].name // empty' <<<"$sources"
+}
+
+current_mic() {
+  local capture source_index
+  capture=$(capture_output)
+  [[ -n $capture ]] || return 0
+  source_index=$(jq -r '.source' <<<"$capture")
+  [[ $source_index =~ ^[0-9]+$ ]] || return 0
+  source_name_by_index "$source_index"
+}
+
+listeners() {
+  local vmic_index
+  vmic_index=$(pactl_json list sources | jq -r --arg vmic "$VMIC" '.[] | select(.name == $vmic) | .index' | head -n1)
+  if [[ ! $vmic_index =~ ^[0-9]+$ ]]; then
+    echo "[]"
+    return
+  fi
+  pactl_json list source-outputs | jq -c --argjson vmic "$vmic_index" '[
+    .[]
+    | select(.source == $vmic)
+    | .properties as $p
+    | select(($p["stream.monitor"] // "false") != "true")
+    | select(($p["application.name"] // "") as $app
+        | ["quickshell", "PulseAudio Volume Control", "pavucontrol", "wpctl"] | index($app) | not)
+    | {
+        app: ($p["application.name"] // $p["node.name"] // "Unknown"),
+        binary: ($p["application.process.binary"] // "")
+      }
+  ] | unique_by(.app)'
+}
+
+print_status() {
+  local sources module mic default_name present=false is_default=false
+  sources=$(candidate_sources)
+  module=$(module_index)
+  default_name=$(default_source)
+  if [[ -n $module ]]; then
+    present=true
+    mic=$(current_mic)
+  else
+    mic=""
+  fi
+  [[ $default_name == "$VMIC" ]] && is_default=true
+  # A real default is the best guess of what the user speaks into; keep it
+  # for the next time the virtual mic has to be rebuilt while it is default.
+  if is_candidate "$default_name" "$sources"; then remember_mic "$default_name"; fi
+
+  jq -cn \
+    --arg error "$ERROR" \
+    --arg vmic "$VMIC" \
+    --arg capture "$CAPTURE" \
+    --argjson present "$present" \
+    --arg module "${module:-}" \
+    --arg mic "${mic:-}" \
+    --arg defaultSource "${default_name:-}" \
+    --argjson isDefault "$is_default" \
+    --argjson sources "$sources" \
+    --argjson listeners "$(listeners)" \
+    '{
+      ok: ($error == ""),
+      error: $error,
+      vmic: $vmic,
+      capture: $capture,
+      present: $present,
+      module: (if $module == "" then null else ($module | tonumber) end),
+      mic: $mic,
+      micDescription: ([$sources[] | select(.name == $mic) | .description] | first // ""),
+      defaultSource: $defaultSource,
+      isDefault: $isDefault,
+      sources: $sources,
+      listeners: $listeners
+    }'
+}
+
+load_vmic() {
+  local mic="$1" output
+  output=$(pactl load-module module-remap-source \
+    "master=$mic" \
+    "source_name=$VMIC" \
+    "channels=2" \
+    "channel_map=front-left,front-right" \
+    "source_properties='device.description=\"$DESCRIPTION\" device.icon_name=audio-input-microphone'" 2>&1)
+  if [[ ! $output =~ ^[0-9]+$ ]]; then
+    ERROR="Could not create the virtual microphone: ${output:-pactl failed}"
+    return 1
+  fi
+}
+
+move_capture() {
+  local mic="$1" capture index output
+  capture=$(capture_output)
+  [[ -n $capture ]] || { ERROR="The virtual microphone has no capture stream"; return 1; }
+  index=$(jq -r '.index' <<<"$capture")
+  output=$(pactl move-source-output "$index" "$mic" 2>&1) || {
+    ERROR="Could not switch the microphone to $mic: ${output:-pactl failed}"
+    return 1
+  }
+}
+
+cmd_ensure() {
+  local requested="${1:-auto}" sources mic module
+  sources=$(candidate_sources)
+  module=$(module_index)
+  if [[ -z $module ]]; then
+    mic=$(pick_mic "$requested" "$sources")
+    if [[ -z $mic ]]; then
+      ERROR="No microphone found to pass through"
+    else
+      load_vmic "$mic" && remember_mic "$mic"
+    fi
+  elif [[ $requested != "auto" ]] && is_candidate "$requested" "$sources" && [[ $(current_mic) != "$requested" ]]; then
+    move_capture "$requested" && remember_mic "$requested"
+  fi
+  print_status
+}
+
+cmd_set_mic() {
+  local requested="${1:-auto}" sources mic
+  sources=$(candidate_sources)
+  mic=$(pick_mic "$requested" "$sources")
+  if [[ -z $(module_index) ]]; then
+    cmd_ensure "${mic:-auto}"
+    return
+  fi
+  if [[ -z $mic ]]; then
+    ERROR="Microphone not found: $requested"
+  elif [[ $(current_mic) != "$mic" ]]; then
+    move_capture "$mic" && remember_mic "$mic"
+  fi
+  print_status
+}
+
+cmd_set_default() {
+  local mode="${1:-}" mic output
+  case $mode in
+    on)
+      [[ -n $(module_index) ]] || cmd_ensure auto >/dev/null
+      if [[ -z $(module_index) ]]; then
+        [[ -n $ERROR ]] || ERROR="$DESCRIPTION is not available"
+      else
+        output=$(pactl set-default-source "$VMIC" 2>&1) || ERROR="Could not make $DESCRIPTION the default input: $output"
+      fi
+      ;;
+    off)
+      mic=$(current_mic)
+      [[ -n $mic ]] || mic=$(remembered_mic)
+      if [[ -n $mic ]]; then
+        output=$(pactl set-default-source "$mic" 2>&1) || ERROR="Could not restore $mic as the default input: $output"
+      fi
+      ;;
+    *)
+      ERROR="set-default takes on or off"
+      ;;
+  esac
+  print_status
+}
+
+cmd_teardown() {
+  local module mic
+  mic=$(current_mic)
+  [[ -n $mic ]] || mic=$(remembered_mic)
+  if [[ $(default_source) == "$VMIC" && -n $mic ]]; then
+    pactl set-default-source "$mic" >/dev/null 2>&1 || true
+  fi
+  while module=$(module_index) && [[ -n $module ]]; do
+    pactl unload-module "$module" >/dev/null 2>&1 || { ERROR="Could not unload module $module"; break; }
+  done
+  print_status
+}
+
+main() {
+  if ! command -v pactl >/dev/null || ! command -v jq >/dev/null; then
+    printf '{"ok":false,"error":"omaboard needs pactl and jq","present":false,"sources":[],"listeners":[]}\n'
+    exit 1
+  fi
+  local command="${1:-status}"
+  shift || true
+  case $command in
+    status) print_status ;;
+    ensure) cmd_ensure "$@" ;;
+    set-mic) cmd_set_mic "$@" ;;
+    set-default) cmd_set_default "$@" ;;
+    teardown) cmd_teardown ;;
+    -h | --help)
+      sed -n '3,22p' "$0" | sed 's/^# \{0,1\}//'
+      ;;
+    *)
+      ERROR="Unknown command: $command"
+      print_status
+      exit 2
+      ;;
+  esac
+}
+
+main "$@"

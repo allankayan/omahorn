@@ -1,0 +1,26 @@
+#!/bin/bash
+
+# Converts a sound pw-play cannot read (m4a, aac, webm, wma, ...) into an
+# Opus file it can, so playback stays a single pw-play process.
+#
+#   omaboard-decode <input> <output.opus>
+#
+# Does nothing when <output> already exists. Writes through a temporary
+# file, so an interrupted conversion never leaves a truncated sound behind.
+
+set -euo pipefail
+
+input="${1:?usage: omaboard-decode <input> <output.opus>}"
+output="${2:?usage: omaboard-decode <input> <output.opus>}"
+
+[[ -s $output ]] && exit 0
+[[ -r $input ]] || { echo "cannot read $input" >&2; exit 1; }
+command -v ffmpeg >/dev/null || { echo "ffmpeg is required to play ${input##*.} files" >&2; exit 1; }
+
+mkdir -p "$(dirname "$output")"
+tmp="$(mktemp "${output%.opus}.XXXXXX.opus")"
+trap 'rm -f "$tmp"' EXIT
+
+nice -n 10 ffmpeg -nostdin -v error -y -i "$input" -vn -map 0:a:0 -c:a libopus -b:a 160k "$tmp"
+mv -f "$tmp" "$output"
+trap - EXIT
