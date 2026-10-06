@@ -35,17 +35,39 @@ Item {
     property color background: root.background
   }
 
-  // Rows rebuild only when the folder list really changes; any other setting
-  // updates the existing rows in place.
-  readonly property string foldersKey: config ? JSON.stringify(config.folders) : "[]"
+  readonly property bool injecting: service ? service.injecting : true
+
+  // Apps that recorded a microphone this session, and whether they are now.
+  readonly property var apps: {
+    if (!service) return []
+    var live = service.injectTargets.map(function(t) { return t.app })
+    return service.seenApps.map(function(a) {
+      return { app: a.app, binary: a.binary, live: live.indexOf(a.app) !== -1 }
+    })
+  }
+
+  // Rows rebuild only when their shape really changes (folders, routing,
+  // the app list); any other setting updates the existing rows in place.
+  readonly property string rowsKey: config ? JSON.stringify([config.folders, injecting, apps]) : "[]"
 
   readonly property var rows: {
-    var folders = JSON.parse(foldersKey)
+    var key = JSON.parse(rowsKey)
+    var folders = key[0] || []
     var list = [
-      { type: "header", text: "MICROPHONE" },
-      { type: "toggle", key: "defaultMic", label: "Use as default microphone", description: "Apps that record the default input hear your sounds, no per-app setup" },
-      { type: "mic", label: "Your microphone", description: "Mixed into Omaboard Microphone along with the sounds" },
-      { type: "listeners" },
+      { type: "header", text: "ROUTING" },
+      { type: "routing", label: "Send sounds" }
+    ]
+    if (key[1]) {
+      var apps = key[2] || []
+      for (var a = 0; a < apps.length; a++) list.push({ type: "app", app: apps[a] })
+      if (apps.length === 0) list.push({ type: "info", text: "Apps show up here while they record a microphone: join a call and its app appears. Each one gets your sounds unless you switch it off." })
+    } else {
+      list.push(
+        { type: "toggle", key: "defaultMic", label: "Use as default microphone", description: "Apps that record the default input hear your sounds, no per-app setup" },
+        { type: "mic", label: "Your microphone", description: "Mixed into Omaboard Microphone along with the sounds" },
+        { type: "listeners" })
+    }
+    list.push(
       { type: "header", text: "VOLUME" },
       { type: "slider", key: "micVolume", label: "Sounds in the mic", description: "What other people hear", max: 150 },
       { type: "toggle", key: "monitor", label: "Hear sounds yourself", description: "Also play them on your current output" },
@@ -56,8 +78,7 @@ Item {
       { type: "header", text: "HOTKEYS" },
       { type: "hotkey", action: "toggle", label: "Open soundboard" },
       { type: "hotkey", action: "stop", label: "Stop all sounds" },
-      { type: "header", text: "FOLDERS" }
-    ]
+      { type: "header", text: "FOLDERS" })
     for (var i = 0; i < folders.length; i++)
       list.push({ type: "folder", index: i, folder: folders[i] })
     list.push({ type: "addFolder" })
@@ -65,7 +86,11 @@ Item {
   }
 
   function selectable(row) {
-    return row && row.type !== "header" && row.type !== "listeners"
+    return row && row.type !== "header" && row.type !== "listeners" && row.type !== "info"
+  }
+
+  function toggleRouting() {
+    service.setSetting("routing", injecting ? "vmic" : "inject")
   }
 
   function reset() {
@@ -134,6 +159,8 @@ Item {
     var row = rows[cursorIndex]
     if (!row || !service) return
     if (row.type === "slider") service.setSetting(row.key, Math.max(0, Math.min(row.max, config[row.key] + delta * 5)))
+    else if (row.type === "routing") toggleRouting()
+    else if (row.type === "app") service.setAppExcluded(row.app, delta < 0)
     else if (row.type === "mic") cycleMic(delta)
     else if (row.type === "toggle") service.setSetting(row.key, delta > 0)
   }
@@ -143,6 +170,8 @@ Item {
     if (!row || !service) return
     if (row.type !== "addFolder") releaseField()
     if (row.type === "toggle") service.setSetting(row.key, !config[row.key])
+    else if (row.type === "routing") toggleRouting()
+    else if (row.type === "app") service.setAppExcluded(row.app, !service.appExcluded(row.app))
     else if (row.type === "mic") cycleMic(1)
     else if (row.type === "hotkey") captureRequested({ action: row.action }, row.label, config.hotkeys[row.action])
     else if (row.type === "folder") service.openFolder(row.folder.path)
@@ -217,7 +246,7 @@ Item {
           required property int index
           width: column.width
           sourceComponent: modelData.type === "header" ? headerRow
-            : modelData.type === "listeners" ? listenersRow
+            : modelData.type === "listeners" || modelData.type === "info" ? listenersRow
             : modelData.type === "addFolder" ? addFolderRow
             : controlRow
         }
@@ -241,7 +270,7 @@ Item {
 
     Item {
       width: parent ? parent.width : 0
-      height: headerText.implicitHeight + (modelData.text === "MICROPHONE" ? Style.space(2) : Style.space(12))
+      height: headerText.implicitHeight + (index === 0 ? Style.space(2) : Style.space(12))
 
       PanelSectionHeader {
         id: headerText
@@ -276,6 +305,7 @@ Item {
         font.family: root.fontFamily
         font.pixelSize: Style.font.bodySmall
         text: {
+          if (modelData.type === "info") return modelData.text
           var a = root.audio
           if (!a) return ""
           if (!a.present) return a.error ? a.error : "Omaboard Microphone is not available yet."
@@ -328,7 +358,8 @@ Item {
         Text {
           width: parent.width
           textFormat: Text.PlainText
-          text: row.entry.type === "folder" ? row.entry.folder.path : row.entry.label
+          text: row.entry.type === "folder" ? row.entry.folder.path
+            : (row.entry.type === "app" ? row.entry.app.app : row.entry.label)
           color: row.hasCursor ? root.selectedText : root.foreground
           font.family: root.fontFamily
           font.pixelSize: Style.font.subtitle
@@ -342,6 +373,11 @@ Item {
           textFormat: Text.PlainText
           text: {
             var d = row.entry
+            if (d.type === "routing") return root.injecting
+              ? "Straight into apps recording a microphone, like Soundux; nothing new in your devices"
+              : "Through an Omaboard Microphone device that apps pick as their input"
+            if (d.type === "app") return (d.app.live ? "Recording now" : "Not recording right now")
+              + (d.app.binary && d.app.binary !== d.app.app ? " · " + d.app.binary : "")
             if (d.type === "folder") return (d.folder.recursive ? "Includes subfolders" : "This folder only") + (row.hasCursor ? "  ·  Enter open · R subfolders · Del remove" : "")
             if (d.type === "hotkey") return row.hasCursor ? "Enter change · Del clear" : ""
             return d.description || ""
@@ -360,16 +396,18 @@ Item {
         anchors.rightMargin: Style.space(10)
         anchors.verticalCenter: parent.verticalCenter
         width: row.entry.type === "slider" ? sliderRow.implicitWidth
-          : (row.entry.type === "toggle" ? toggle.implicitWidth : valueText.implicitWidth)
+          : (row.entry.type === "toggle" || row.entry.type === "app" ? toggle.implicitWidth : valueText.implicitWidth)
         height: Math.max(Style.space(22), toggle.implicitHeight)
 
         ToggleSwitch {
           id: toggle
-          visible: row.entry.type === "toggle"
+          visible: row.entry.type === "toggle" || row.entry.type === "app"
           anchors.right: parent.right
           anchors.verticalCenter: parent.verticalCenter
           interactive: false
-          checked: !!(root.config && row.entry.key && root.config[row.entry.key])
+          checked: row.entry.type === "app"
+            ? !!(root.service && root.config && !root.service.appExcluded(row.entry.app))
+            : !!(root.config && row.entry.key && root.config[row.entry.key])
           foreground: root.foreground
         }
 
@@ -411,12 +449,13 @@ Item {
 
         Text {
           id: valueText
-          visible: row.entry.type === "mic" || row.entry.type === "hotkey" || row.entry.type === "folder"
+          visible: row.entry.type === "mic" || row.entry.type === "hotkey" || row.entry.type === "folder" || row.entry.type === "routing"
           anchors.right: parent.right
           anchors.verticalCenter: parent.verticalCenter
           textFormat: Text.PlainText
           text: {
             var d = row.entry
+            if (d.type === "routing") return "‹  " + (root.injecting ? "Into apps" : "Virtual mic") + "  ›"
             if (d.type === "mic") return "‹  " + root.micLabel() + "  ›"
             if (d.type === "hotkey") {
               var hk = root.config ? root.config.hotkeys[d.action] : null

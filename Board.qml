@@ -471,23 +471,29 @@ Item {
 
               Button {
                 id: micChip
+                readonly property bool ok: !!root.service && root.service.micReady
+                readonly property var apps: root.service ? root.service.listeners.map(function(l) { return l.app }) : []
                 anchors.verticalCenter: parent.verticalCenter
-                foreground: root.audio && root.audio.present ? root.foreground : Color.urgent
+                foreground: ok ? root.foreground : Color.urgent
                 fontFamily: root.fontFamily
                 fontSize: Style.font.caption
                 iconSize: Style.font.body
-                iconText: root.audio && root.audio.present ? Glyphs.mic : Glyphs.micOff
+                iconText: ok ? Glyphs.mic : Glyphs.micOff
                 verticalPadding: Style.space(4)
                 text: {
-                  var a = root.audio
-                  if (!a || !a.present) return "Mic offline"
-                  var apps = (a.listeners || []).map(function(l) { return l.app })
+                  if (!ok) return "Mic offline"
                   if (apps.length > 0) return "Live · " + apps.join(", ")
-                  return a.isDefault ? "Default mic" : "Mic ready"
+                  if (root.service.injecting) return "No app listening"
+                  return root.audio.isDefault ? "Default mic" : "Mic ready"
                 }
-                tooltipText: root.audio && root.audio.present
-                  ? "Omaboard Microphone · " + (root.audio.micDescription || "no microphone")
-                  : (root.audio && root.audio.error ? root.audio.error : "The virtual microphone is not set up")
+                tooltipText: {
+                  if (!root.service) return ""
+                  if (root.service.injecting) return apps.length > 0
+                    ? "Sounds go straight into " + apps.join(", ")
+                    : "Sounds go into any app recording a microphone; none is right now"
+                  return ok ? "Omaboard Microphone · " + (root.audio.micDescription || "no microphone")
+                    : (root.audio.error || "The virtual microphone is not set up")
+                }
                 onClicked: {
                   root.view = "settings"
                   settingsView.reset()

@@ -14,10 +14,14 @@ import "lib/Glyphs.js" as Glyphs
 // microphone and global hotkeys. The board, the bar widget and IPC all drive
 // this one object; none of them talk to PipeWire or Hyprland directly.
 //
-// Audio path: the "Omaboard Microphone" virtual source (bin/omaboard-audio)
-// passes the real microphone through, and every sound is played straight
-// into its capture stream, plus a second copy on the default output so you
-// hear it too. Each copy is a short-lived pw-play; nothing runs while idle.
+// Audio path, by config.routing:
+//   inject  every sound is linked straight into the recording streams of the
+//           apps using a microphone (bin/omaboard-inject), like Soundux; no
+//           device is added and your voice path is untouched;
+//   vmic    the "Omaboard Microphone" virtual source (bin/omaboard-audio)
+//           passes the real microphone through and sounds are played into it.
+// Either way a second copy plays on the default output so you hear it too.
+// Each copy is a short-lived pw-play; nothing runs while idle.
 Item {
   id: root
   visible: false
@@ -66,7 +70,15 @@ Item {
 
   property var audio: ({ ok: true, error: "", present: false, mic: "", micDescription: "", isDefault: false, sources: [], listeners: [] })
   property bool audioReady: false
-  readonly property bool micReady: audio.present === true
+  readonly property bool injecting: config.routing !== "vmic"
+  // Injecting needs no device, so it is always ready; the virtual mic is
+  // ready once its module exists.
+  readonly property bool micReady: injecting || audio.present === true
+  // Apps recording a microphone right now, which is who hears an injected
+  // sound: [{ node, app, binary }].
+  property var injectTargets: []
+  // Who hears the sounds, whichever the routing.
+  readonly property var listeners: injecting ? injectTargets : (audio.listeners || [])
 
   property var playing: []
   readonly property bool isPlaying: playing.length > 0
@@ -280,6 +292,15 @@ Item {
     }
     if (JSON.stringify(previous.folders) !== JSON.stringify(next.folders)) rescan()
     else if (JSON.stringify(previous.sounds) !== JSON.stringify(next.sounds)) sounds = mergeSoundSettings(sounds, next)
+    if (JSON.stringify(previous.hotkeys) !== JSON.stringify(next.hotkeys)
+        || JSON.stringify(Config.usedKeys(previous)) !== JSON.stringify(Config.usedKeys(next))) syncBinds()
+    if (previous.routing !== next.routing) {
+      log("routing: " + next.routing)
+      setupAudio()
+      return
+    }
+    if (JSON.stringify(previous.exclude) !== JSON.stringify(next.exclude)) refreshTargets()
+    if (next.routing !== "vmic") return
     if (previous.mic !== next.mic) audioCommand(["set-mic", next.mic])
     if (previous.defaultMic !== next.defaultMic && !adopted) {
       audioCommand(["set-default", next.defaultMic ? "on" : "off"], function(status) {
@@ -287,8 +308,6 @@ Item {
         if (!status.ok) report(status.error)
       })
     }
-    if (JSON.stringify(previous.hotkeys) !== JSON.stringify(next.hotkeys)
-        || JSON.stringify(Config.usedKeys(previous)) !== JSON.stringify(Config.usedKeys(next))) syncBinds()
   }
 
   function setSetting(key, value) {
@@ -564,8 +583,10 @@ Item {
       toMonitor = true
     }
     var gain = sound.volume || 100
+    var micAmplitude = Library.amplitude(config.micVolume * gain / 100)
     var parts = []
-    if (toMic) parts.push({ role: "mic", command: playCommand(file, captureName, Library.amplitude(config.micVolume * gain / 100), "mic", sound) })
+    if (toMic && injecting) parts.push({ role: "mic", command: [pluginDir + "/bin/omaboard-inject", "play", file, micAmplitude.toFixed(4), sound.name, JSON.stringify(config.exclude)] })
+    else if (toMic) parts.push({ role: "mic", command: playCommand(file, captureName, micAmplitude, "mic", sound) })
     if (toMonitor) parts.push({ role: "monitor", command: playCommand(file, "", Library.amplitude(config.monitorVolume * gain / 100), "monitor", sound) })
     if (parts.length === 0) return false
 
@@ -642,6 +663,16 @@ Item {
 
   function processExited(proc, exitCode, errorText) {
     var voice = voices[proc.voiceKey]
+    if (voice && proc.role === "mic" && injecting && !voice.stopped && (exitCode === 3 || exitCode === 4)) {
+      // Nobody to play into is news, not an error: say so once, and let a
+      // copy you are hearing carry on.
+      var heard = voice.procs.length > 1
+      report(exitCode === 3
+        ? "No app is recording a microphone" + (heard ? "; " + voice.name + " plays only for you" : "")
+        : "The app recording your microphone went away mid-sound", heard ? "info" : "error")
+      refreshTargets()
+      exitCode = 0
+    }
     if (voice) {
       voice.procs = voice.procs.filter(function(p) { return p !== proc })
       if (exitCode !== 0 && !voice.stopped) {
@@ -665,7 +696,7 @@ Item {
           Qt.callLater(function() { root.play(voice.soundId, retryOptions) })
         } else if (voice.failure) {
           report("Could not play " + voice.name + ": " + voice.failure)
-          if (/Microphone/.test(voice.failure)) audioCommand(["ensure", config.mic])
+          if (!injecting && /Microphone/.test(voice.failure)) audioCommand(["ensure", config.mic])
         }
       }
     }
@@ -743,6 +774,13 @@ Item {
   }
 
   function setupAudio() {
+    if (injecting) {
+      audioReady = true
+      retireVmic()
+      refreshTargets()
+      return
+    }
+    retireTimer.stop()
     audioCommand(["ensure", config.mic], function(status, before) {
       if (!status.ok) report(status.error)
       audioReady = true
@@ -762,7 +800,7 @@ Item {
 
   function reconcileDefault() {
     audioCommand(["status"], function(status) {
-      if (!status.present) return
+      if (injecting || !status.present) return
       if (config.defaultMic && !status.isDefault) {
         if (!appState.defaultApplied) {
           audioCommand(["set-default", "on"], function(after) {
@@ -786,7 +824,70 @@ Item {
   }
 
   function refreshAudio() {
-    if (!audioJob && audioQueue.length === 0) audioCommand(["status"])
+    if (injecting) refreshTargets()
+    else if (!audioJob && audioQueue.length === 0) audioCommand(["status"])
+  }
+
+  // Injecting leaves no use for a virtual mic made earlier, but an app may be
+  // recording it right now, mid-call: only take it away once nobody is.
+  function retireVmic() {
+    audioCommand(["status"], function(status) {
+      if (!injecting || !status.present) return
+      if ((status.listeners || []).length > 0) {
+        retireTimer.restart()
+        return
+      }
+      audioCommand(["teardown"], function(after) {
+        if (!after.present) log("removed Omaboard Microphone; sounds now go straight into apps")
+        else if (after.error) report(after.error)
+      })
+    })
+  }
+
+  Timer {
+    id: retireTimer
+    interval: 30000
+    onTriggered: if (root.injecting) root.retireVmic()
+  }
+
+  // --------------------------------------------------- inject targets
+
+  function refreshTargets() {
+    if (!injecting || targetsProc.running) return
+    targetsProc.run([pluginDir + "/bin/omaboard-inject", "list", JSON.stringify(config.exclude)])
+  }
+
+  Command {
+    id: targetsProc
+    onFinished: function(exitCode, output) {
+      var list = null
+      try { list = JSON.parse(String(output || "").trim() || "[]") } catch (e) { list = null }
+      if (Array.isArray(list) && JSON.stringify(list) !== JSON.stringify(root.injectTargets)) root.injectTargets = list
+    }
+  }
+
+  // Apps that recorded a microphone at some point this session, so ones you
+  // excluded stay listed (and can be let back in) while they are idle.
+  property var seenApps: []
+  onInjectTargetsChanged: {
+    var next = seenApps.slice()
+    for (var i = 0; i < injectTargets.length; i++) {
+      var t = injectTargets[i]
+      if (!next.some(function(a) { return a.app === t.app })) next.push({ app: t.app, binary: t.binary })
+    }
+    if (next.length !== seenApps.length) seenApps = next
+  }
+
+  function appExcluded(app) {
+    var names = config.exclude || []
+    return names.indexOf(app.app) !== -1 || (app.binary && names.indexOf(app.binary) !== -1)
+  }
+
+  function setAppExcluded(app, excluded) {
+    var key = app.binary || app.app
+    var names = (config.exclude || []).filter(function(n) { return n !== app.app && n !== app.binary })
+    if (excluded) names.push(key)
+    setSetting("exclude", names)
   }
 
   // Default input changes made anywhere (Omarchy's audio panel, pavucontrol)
@@ -819,13 +920,14 @@ Item {
   Timer {
     id: vmicLostTimer
     interval: 2500
-    onTriggered: if (!root.vmicNodePresent) {
+    onTriggered: if (!root.injecting && !root.vmicNodePresent) {
       root.log("virtual microphone missing, recreating it")
       root.audioCommand(["ensure", root.config.mic])
     }
   }
 
   function handleDefaultSourceChange() {
+    if (injecting) return
     var name = defaultSourceName
     if (!audioReady || !name || name === lastDefaultSource) {
       if (name) lastDefaultSource = name
@@ -1126,7 +1228,9 @@ Item {
       ready: ready,
       sounds: sounds.length,
       playing: playing.map(function(p) { return p.name }),
-      mic: { present: audio.present, default: audio.isDefault, passthrough: audio.mic, listeners: audio.listeners, error: audio.error },
+      routing: config.routing,
+      listeners: listeners.map(function(l) { return l.app }),
+      mic: { present: audio.present, default: audio.isDefault, passthrough: audio.mic, error: audio.error },
       hotkeys: shortcuts.map(function(s) { return { keys: s.label, action: s.action, path: s.path || "" } }),
       bound: appliedKeys,
       blocked: blockedHotkeys,
@@ -1158,6 +1262,12 @@ Item {
 
     function random(category: string): string {
       return root.playRandom(category) ? "ok" : "empty"
+    }
+
+    function setRouting(mode: string): string {
+      if (mode !== "inject" && mode !== "vmic") return "use inject or vmic"
+      root.setSetting("routing", mode)
+      return "ok"
     }
 
     function setDefaultMic(enabled: string): string {

@@ -89,3 +89,11 @@ test("first run keeps the default folder first and applies Soundux settings", ()
   assert.equal(config.monitorVolume, 70)
   assert.equal(Config.firstRun("").imported, false)
 })
+
+test("routing defaults to injecting into apps; exclude keeps clean names", () => {
+  assert.equal(Config.normalize({}).routing, "inject")
+  assert.equal(Config.normalize({ routing: "vmic" }).routing, "vmic")
+  assert.equal(Config.normalize({ routing: "loud" }).routing, "inject")
+  assert.deepEqual(Config.normalize({ exclude: ["OBS", " OBS ", "", 3, "Discord"] }).exclude, ["OBS", "Discord"])
+  assert.deepEqual(Config.normalize({ exclude: "OBS" }).exclude, [])
+})

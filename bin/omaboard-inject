@@ -1,0 +1,162 @@
+#!/bin/bash
+
+# Plays a sound straight into the recording streams of the apps that are
+# using a microphone, the way Soundux and Soundpad do: no virtual device,
+# nothing added to your voice path. The player starts unlinked, which holds
+# it at its first sample, and is then linked into each app's input ports;
+# PipeWire mixes it with the microphone those apps already hear.
+#
+#   omaboard-inject list [<exclude-json>]
+#   omaboard-inject play <file> <volume> <media-name> [<exclude-json>]
+#
+# `list` prints the apps recording a microphone right now:
+#   [{"node": 123, "app": "Zen", "binary": "zen-bin"}]
+# <exclude-json> is an array of app names or binaries to leave alone.
+#
+# `play` exits 0 once the sound has finished, 3 when no app is recording a
+# microphone, 4 when every app it played into went away mid-sound.
+
+set -uo pipefail
+
+# Apps that record the microphone only to show its level.
+readonly BUILTIN_EXCLUDE='["quickshell", "PulseAudio Volume Control", "pavucontrol", "wpctl", "Omaboard"]'
+
+# Streams recording a microphone: fed by an Audio/Source node, not a filter
+# or loopback (those carry node.link-group), not a level meter, not ours.
+readonly TARGETS_JQ='
+  def props: .info.props // {};
+  def lc: ascii_downcase;
+  ($exclude + $builtin | map(lc)) as $skip
+  | (map(select(.type == "PipeWire:Interface:Node")) | map({ key: (.id | tostring), value: . }) | from_entries) as $nodes
+  | (map(select(.type == "PipeWire:Interface:Link")) | map(.info)) as $links
+  | (map(select(.type == "PipeWire:Interface:Port"))) as $ports
+  | [ $nodes[]
+      | select(props["media.class"] == "Stream/Input/Audio")
+      | select(props["node.link-group"] == null)
+      | select((props["node.name"] // "") | startswith("omaboard") | not)
+      | select((props["stream.monitor"] // false | tostring) != "true")
+      | select((props["node.passive"] // false | tostring) != "true")
+      | (props["application.name"] // props["node.name"] // "Unknown") as $app
+      | (props["application.process.binary"] // "") as $binary
+      | select(($skip | index($app | lc)) == null and ($binary == "" or ($skip | index($binary | lc)) == null))
+      | .id as $id
+      | select(any($links[]; .["input-node-id"] == $id
+          and (($nodes[(.["output-node-id"] | tostring)] | props["media.class"]) // "" | startswith("Audio/Source"))))
+      | {
+          node: $id,
+          app: $app,
+          binary: $binary,
+          ports: [ $ports[] | select(.info.direction == "input" and .info.props["node.id"] == $id)
+                   | { id, channel: (.info.props["audio.channel"] // "") } ]
+        }
+    ]'
+
+targets() {
+  local exclude="${1:-[]}"
+  jq -e 'type == "array"' <<<"$exclude" >/dev/null 2>&1 || exclude='[]'
+  pw-dump 2>/dev/null | jq -c --argjson exclude "$exclude" --argjson builtin "$BUILTIN_EXCLUDE" "$TARGETS_JQ"
+}
+
+cmd_list() {
+  local found
+  found=$(targets "${1:-[]}") || found='[]'
+  jq -c 'map({ node, app, binary }) | unique_by(.app)' <<<"${found:-[]}"
+}
+
+# Links output port ids (channel-tagged) to one app's input ports: same
+# channel where it exists, a mono source to every channel, every source
+# channel into a mono input.
+link_into() {
+  local target="$1" out_ids="$2" out_channels="$3"
+  local -a ids channels
+  read -r -a ids <<<"$out_ids"
+  read -r -a channels <<<"$out_channels"
+  local in_id in_channel i linked spread=0
+  while IFS=$'\t' read -r in_id in_channel; do
+    [[ -n $in_id ]] || continue
+    linked=0
+    for i in "${!ids[@]}"; do
+      if [[ ${channels[$i]} == "$in_channel" ]]; then
+        pw-link "${ids[$i]}" "$in_id" >/dev/null 2>&1 && linked=1
+      fi
+    done
+    ((linked)) && continue
+    for i in "${!ids[@]}"; do
+      if [[ ${channels[$i]} == "MONO" || $in_channel == "MONO" ]]; then
+        pw-link "${ids[$i]}" "$in_id" >/dev/null 2>&1 && linked=1
+      fi
+    done
+    ((linked)) && continue
+    # Any other layout: spread the channels round-robin.
+    pw-link "${ids[$((spread++ % ${#ids[@]}))]}" "$in_id" >/dev/null 2>&1 || true
+  done < <(jq -r '.ports[] | [.id, .channel] | @tsv' <<<"$target")
+}
+
+cmd_play() {
+  local file="${1:?usage: omaboard-inject play <file> <volume> <media-name> [<exclude-json>]}"
+  local volume="${2:-1}" name="${3:-Omaboard}" exclude="${4:-[]}"
+  [[ -r $file ]] || { echo "cannot read $file" >&2; exit 1; }
+
+  name=$(printf '%s' "$name" | tr -d '\000-\037"\\' | cut -c1-96)
+  local node="omaboard.inject.$$"
+  local props="{ application.name = \"Omaboard\" application.id = \"omaboard\" node.name = \"$node\" media.name = \"$name\" state.restore-props = false state.restore-target = false }"
+
+  # Unlinked, the player waits at its first sample until it has somewhere
+  # to go, so nothing is lost while the links are made.
+  pw-play --target 0 --volume "$volume" -P "$props" "$file" &
+  local player=$!
+  trap 'kill "$player" 2>/dev/null; wait "$player" 2>/dev/null; exit 143' TERM INT HUP
+
+  local found
+  found=$(targets "$exclude") || found='[]'
+  if [[ $(jq 'length' <<<"${found:-[]}") -eq 0 ]]; then
+    kill "$player" 2>/dev/null
+    wait "$player" 2>/dev/null
+    echo "no app is recording a microphone" >&2
+    exit 3
+  fi
+
+  local out_ids="" out_channels="" attempt port_id port_name
+  for attempt in $(seq 200); do
+    while read -r port_id port_name; do
+      [[ $port_name == "$node:"* ]] || continue
+      out_ids+="$port_id "
+      out_channels+="${port_name##*_} "
+    done < <(pw-link -o -I 2>/dev/null)
+    [[ -n $out_ids ]] && break
+    kill -0 "$player" 2>/dev/null || { wait "$player"; exit $?; }
+    sleep 0.01
+  done
+  if [[ -z $out_ids ]]; then
+    kill "$player" 2>/dev/null
+    echo "the player never came up" >&2
+    exit 1
+  fi
+
+  local target
+  while read -r target; do
+    link_into "$target" "$out_ids" "$out_channels"
+  done < <(jq -c '.[]' <<<"$found")
+
+  # Should every app it plays into go away, nothing drives the player any
+  # more and it would wait forever; stop it instead.
+  local orphaned=0
+  while kill -0 "$player" 2>/dev/null; do
+    sleep 0.5
+    if pw-link -l 2>/dev/null | grep -q "^$node:"; then
+      orphaned=0
+    elif ((++orphaned >= 3)); then
+      kill "$player" 2>/dev/null
+      wait "$player" 2>/dev/null
+      echo "every app stopped recording" >&2
+      exit 4
+    fi
+  done
+  wait "$player"
+}
+
+case "${1:-}" in
+  list) shift; cmd_list "$@" ;;
+  play) shift; cmd_play "$@" ;;
+  *) sed -n '3,18p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+esac
