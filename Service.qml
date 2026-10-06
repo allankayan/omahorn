@@ -46,7 +46,9 @@ Item {
 
   readonly property string vmicName: "omaboard_mic"
   readonly property string captureName: "input.omaboard_mic"
-  readonly property string bindPrefix: "Omaboard: "
+  // Every bind Omaboard makes is described with this prefix, which is how it
+  // tells its binds apart from the user's (the dev host gets its own).
+  readonly property string bindPrefix: appId === "omaboard" ? "Omaboard: " : "Omaboard (" + appId + "): "
 
   // ------------------------------------------------------------- state
 
@@ -273,9 +275,7 @@ Item {
       ready = true
       setupAudio()
       rescan()
-      // Look at Hyprland's binds before taking any key, so a default never
-      // lands on top of one of the user's own.
-      refreshHyprBinds(syncBinds)
+      syncBinds()
       return
     }
     if (JSON.stringify(previous.folders) !== JSON.stringify(next.folders)) rescan()
@@ -904,20 +904,44 @@ Item {
     bindsAdopted = true
     var text = ""
     try { text = bindsFile.text() } catch (e) { text = "" }
-    var re = /hl\.bind\("([^"]+)"/g
     var keys = appliedKeys.slice()
-    var match
-    while ((match = re.exec(String(text || ""))) !== null) {
-      if (Hotkeys.isValidKeys(match[1]) && keys.indexOf(match[1]) === -1) keys.push(match[1])
-    }
+    var fromFile = Hotkeys.keysInBindsFile(text)
+    for (var i = 0; i < fromFile.length; i++) if (keys.indexOf(fromFile[i]) === -1) keys.push(fromFile[i])
     appliedKeys = keys
+  }
+
+  // Keys Hyprland currently binds for Omaboard, whoever bound them: an earlier
+  // instance, a reload of the binds file. Releasing them before binding is
+  // what keeps a key from ending up bound twice, which would fire twice.
+  // A key the user also bound is left alone, since unbinding is per key.
+  function ownBindsInHyprland() {
+    var own = []
+    var shared = {}
+    for (var i = 0; i < hyprBinds.length; i++) {
+      var b = hyprBinds[i]
+      if (b.description.indexOf(bindPrefix) !== 0) shared[b.mask + "|" + b.key] = true
+    }
+    for (var j = 0; j < hyprBinds.length; j++) {
+      var o = hyprBinds[j]
+      if (o.description.indexOf(bindPrefix) !== 0 || shared[o.mask + "|" + o.key]) continue
+      if (Hotkeys.isValidKeys(o.combo) && own.indexOf(o.combo) === -1) own.push(o.combo)
+    }
+    return own
   }
 
   // Hotkeys left unbound because a Hyprland bind of the user's own already
   // has their keys: [{ name, label, by }].
   property var blockedHotkeys: []
 
+  // Binds always start from a fresh look at Hyprland's own: a default must
+  // never land on a key the user bound, and every bind Omaboard already has
+  // is released first so none is ever doubled.
   function syncBinds() {
+    if (!ready || !hotkeysEnabled) return
+    refreshHyprBinds(applyBinds)
+  }
+
+  function applyBinds() {
     if (!ready || !hotkeysEnabled) return
     adoptPreviousBinds()
     var bindings = []
@@ -944,7 +968,7 @@ Item {
         bindsFile.setText(content)
       }
     }
-    var code = Hotkeys.evalCode(appId, bindings, appliedKeys)
+    var code = Hotkeys.evalCode(appId, bindings, appliedKeys.concat(ownBindsInHyprland()))
     appliedKeys = bindings.map(function(b) { return b.keys })
     if (code) hyprEval(code)
     log("hotkeys: " + bindings.length + " bound" + (blockedHotkeys.length ? ", " + blockedHotkeys.length + " taken by Hyprland binds" : "")
@@ -1066,7 +1090,14 @@ Item {
 
   // ------------------------------------------------------------- board
 
+  // One press reaches here once, but two binds on the same key would undo
+  // each other's toggle in the same instant; ignore the echo.
+  property double lastToggle: 0
+
   function toggleBoard() {
+    var now = Date.now()
+    if (now - lastToggle < 250) return
+    lastToggle = now
     if (shell && typeof shell.toggle === "function") shell.toggle(pluginId, "{}")
   }
 

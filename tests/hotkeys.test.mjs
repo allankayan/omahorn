@@ -138,8 +138,18 @@ bindd
 test("parses hyprctl binds text, keeping keycodes", () => {
   const binds = H.parseHyprBinds(BINDS_TEXT)
   assert.equal(binds.length, 3)
-  assert.deepEqual(binds[0], { mask: 68, key: "e", description: "Emoji picker", arg: "120" })
+  assert.deepEqual(binds[0], { mask: 68, key: "e", combo: "SUPER + CTRL + E", description: "Emoji picker", arg: "120" })
   assert.equal(binds[1].key, "code:10")
+  assert.equal(binds[1].combo, "SUPER + ALT + code:10")
+  assert.equal(binds[2].combo, "SUPER + CTRL + M")
+})
+
+test("reads the keys of both generated file formats", () => {
+  const oldFormat = 'hl.bind("SUPER + CTRL + M", hl.dsp.global("omaboard:toggle"), { description = "x" })'
+  const newFormat = 'pcall(hl.bind, "CTRL + ALT + code:56", hl.dsp.global("omaboard:play-s1"), { description = "y" })'
+  assert.deepEqual(H.keysInBindsFile(oldFormat + "\n" + newFormat + "\n" + newFormat), ["SUPER + CTRL + M", "CTRL + ALT + code:56"])
+  assert.deepEqual(H.keysInBindsFile(H.bindsFile("omaboard", [{ keys: "SUPER + F13", name: "stop", description: "z" }])), ["SUPER + F13"])
+  assert.deepEqual(H.keysInBindsFile('hl.bind("rm -rf", x)'), [])
 })
 
 test("finds conflicts by keycode or by key name, ignoring our own", () => {

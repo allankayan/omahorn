@@ -208,6 +208,16 @@ qs log -p "$OMARCHY_PATH/shell" | grep omaboard
 **A hotkey does nothing.** `hyprctl globalshortcuts` should list
 `omaboard:play-…` for it, and `omarchy menu keybindings --print` the bind.
 
+## Updating
+
+```bash
+omarchy plugin update omaboard
+omarchy restart shell
+```
+
+The shell keeps a plugin's service loaded across plugin reloads, so a new
+version of Omaboard only takes over after the shell restarts.
+
 ## Uninstall
 
 ```bash
