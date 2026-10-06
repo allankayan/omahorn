@@ -71,8 +71,10 @@ list_files() {
       category="$folder_name"
       [[ $rel == */* ]] && category="${rel%%/*}"
       printf '%s\t%s\t%s\t%s\t%s\n' "$file" "$path" "$category" "$size" "${mtime%.*}"
+    # Hidden entries below the folder are skipped; the folder itself may
+    # live under one (~/.local/share/sounds).
     done < <(find "$path" -mindepth 1 -maxdepth "$depth" \
-      -not -path '*/.*' -type f "${matchers[@]}" \
+      -name '.*' -prune -o -type f "${matchers[@]}" \
       -printf '%p\t%s\t%T@\0' 2>/dev/null | sort -z)
   done
 }

@@ -80,6 +80,15 @@ test("scan: missing folders and ~ paths are handled", () => {
   assert.deepEqual(home, [])
 })
 
+test("scan: a folder under a hidden directory still lists its sounds", () => {
+  const { dir, env } = fixture()
+  const hiddenLib = join(dir, ".local", "share", "sounds")
+  wav(join(hiddenLib, "ping.wav"), 0.25)
+  wav(join(hiddenLib, ".cache", "skip.wav"), 0.25)
+  const sounds = scan([{ path: hiddenLib, recursive: true }], env)
+  assert.deepEqual(sounds.map(s => s.file), ["ping.wav"])
+})
+
 test("scan: rejects input that is not a folder list", () => {
   const result = spawnSync(join(root, "bin/omaboard-scan"), ["{}"], { encoding: "utf8" })
   assert.equal(result.status, 2)
