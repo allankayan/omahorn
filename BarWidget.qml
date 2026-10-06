@@ -65,7 +65,8 @@ BarWidget {
       if (s.isPlaying) return "Playing " + s.playing.map(function(p) { return p.name }).join(", ") + " · right-click to stop"
       if (!root.micOk) return "Omaboard: " + (s.audio.error || "virtual microphone unavailable")
       var listeners = (s.audio.listeners || []).map(function(l) { return l.app })
-      return "Omaboard · " + s.sounds.length + " sounds" + (listeners.length ? " · live in " + listeners.join(", ") : "")
+      var hotkey = s.config.hotkeys.toggle ? " · " + s.config.hotkeys.toggle.label : ""
+      return "Omaboard · " + s.sounds.length + " sounds" + (listeners.length ? " · live in " + listeners.join(", ") : "") + hotkey
     }
 
     onPressed: function(b) {
