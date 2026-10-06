@@ -515,6 +515,7 @@ Item {
     var preview = opts.preview === true
 
     var file = sound.path
+    var decodedTarget = ""
     if (needsDecode(sound)) {
       var target = Library.decodedPath(cacheDir, sound)
       if (!decoded[target]) {
@@ -527,6 +528,7 @@ Item {
         return true
       }
       file = target
+      decodedTarget = target
     }
 
     var keepOthers = config.overlap
@@ -556,6 +558,9 @@ Item {
       startedAt: Date.now(),
       duration: sound.duration,
       preview: preview,
+      decodedTarget: decodedTarget,
+      retried: opts.retried === true,
+      options: opts,
       procs: [],
       failure: "",
       stopped: false
@@ -629,7 +634,14 @@ Item {
         for (var key in voices) if (key !== voice.key) next[key] = voices[key]
         voices = next
         syncPlaying()
-        if (voice.failure) {
+        if (voice.failure && voice.decodedTarget && !voice.retried) {
+          // The converted copy went missing (a cleared cache): convert again.
+          var nextDecoded = {}
+          for (var target in decoded) if (target !== voice.decodedTarget) nextDecoded[target] = decoded[target]
+          decoded = nextDecoded
+          var retryOptions = { preview: voice.preview, retried: true }
+          Qt.callLater(function() { root.play(voice.soundId, retryOptions) })
+        } else if (voice.failure) {
           report("Could not play " + voice.name + ": " + voice.failure)
           if (/Microphone/.test(voice.failure)) audioCommand(["ensure", config.mic])
         }
