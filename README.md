@@ -148,22 +148,44 @@ you, overlap, hotkeys and folders. Changes save as you go to
 `~/.config/omaboard/config.json`, which you can also edit by hand; the shell
 picks edits up live.
 
-```jsonc
+```json
 {
+  "version": 1,
   "folders": [
-    { "path": "~/Music/Soundboard", "recursive": true },    // subfolders become tabs
-    { "path": "~/Downloads/audios", "name": "Memes" }       // just this folder
+    { "path": "~/Music/Soundboard", "recursive": true },
+    { "path": "~/Downloads/audios", "name": "Memes" }
   ],
-  "mic": "auto",           // or a source name from `pactl list short sources`
-  "defaultMic": true,      // make Omaboard Microphone the default input
-  "monitor": true,         // hear sounds yourself
-  "micVolume": 80,         // % — what others hear
-  "monitorVolume": 60,     // % — what you hear
-  "overlap": false,        // a new sound stops the one playing
-  "closeOnPlay": true,     // Enter closes the board
-  "sounds": { "/full/path.mp3": { "favorite": true, "volume": 120, "hotkey": { "keys": "SUPER + ALT + code:10", "label": "Super+Alt+1" } } }
+  "mic": "auto",
+  "defaultMic": true,
+  "monitor": true,
+  "micVolume": 80,
+  "monitorVolume": 60,
+  "overlap": false,
+  "closeOnPlay": true,
+  "sounds": {
+    "/home/you/Music/Soundboard/airhorn.mp3": {
+      "favorite": true,
+      "volume": 120,
+      "hotkey": { "keys": "SUPER + ALT + code:38", "label": "Super+Alt+A" }
+    }
+  }
 }
 ```
+
+| Key | |
+| --- | --- |
+| `folders` | Where sounds come from. `recursive` folders turn their subfolders into tabs; `name` renames the tab |
+| `mic` | `auto` follows your default input; or a source name from `pactl list short sources` |
+| `defaultMic` | Make Omaboard Microphone the system default input |
+| `monitor` | Hear sounds yourself |
+| `micVolume`, `monitorVolume` | 0–150%: what others hear, what you hear |
+| `overlap` | Let sounds play over each other instead of replacing the one playing |
+| `closeOnPlay` | Enter closes the board |
+| `sounds` | Per-sound favorite, volume and hotkey, keyed by full path |
+
+The file must stay valid JSON. If it stops parsing, Omaboard keeps running on
+the last good settings (defaults, if it started that way) and writes nothing
+to the file until it parses again.
 
 ## Troubleshooting
 
