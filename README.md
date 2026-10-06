@@ -4,6 +4,8 @@ A soundboard for [Omarchy](https://omarchy.org). Press a key, and a sound plays
 into your microphone: whoever is on the other end of the call, stream or game
 hears it along with your voice.
 
+![The board](docs/board.png)
+
 It is an Omarchy shell plugin, not a separate app. The board is a keyboard-first
 overlay drawn with the shell's own components, so it follows whatever theme you
 use, and it costs nothing while you are not using it: no daemon, no web view, no
@@ -71,6 +73,8 @@ equalizer.
 
 ### Hotkeys
 
+![Recording a hotkey](docs/hotkey.png)
+
 <kbd>Ctrl</kbd>+<kbd>K</kbd> on a pad, then press the combination. Use
 <kbd>Super</kbd>, <kbd>Ctrl</kbd> or <kbd>Alt</kbd> with any key, or F13 and up
 on their own, which is what macro keys on most keyboards send. Keys Hyprland
@@ -128,6 +132,8 @@ so calls carry on. Disabling or removing the plugin takes it away and restores
 your previous default input.
 
 ## Settings
+
+![Settings](docs/settings.png)
 
 <kbd>Ctrl</kbd>+<kbd>,</kbd> in the board covers everything: the default-mic
 switch, which microphone passes through, the volume of sounds in the mic and for
