@@ -53,9 +53,27 @@ test("keypad keys are labelled as such", () => {
 test("validates keys strictly", () => {
   assert.equal(H.isValidKeys("SUPER + CTRL + M"), true)
   assert.equal(H.isValidKeys("code:191"), true)
+  assert.equal(H.isValidKeys("SUPER + F13"), true)
+  assert.equal(H.isValidKeys("CTRL + KP_5"), true)
+  assert.equal(H.isValidKeys("ALT + Return"), true)
   assert.equal(H.isValidKeys("SUPER + CTRL + M\") os.execute(\"x"), false)
   assert.equal(H.isValidKeys("HYPER + M"), false)
+  assert.equal(H.isValidKeys("SUPER + SUPER + M"), false)
+  // Labels from the UI are not key names Hyprland knows.
+  assert.equal(H.isValidKeys("SUPER + Esc"), false)
+  assert.equal(H.isValidKeys("SUPER + PgUp"), false)
+  assert.equal(H.isValidKeys("code:999"), false)
+  assert.equal(H.isValidKeys("code:3"), false)
+  assert.equal(H.isValidKeys("m"), false)
   assert.equal(H.isValidKeys(""), false)
+})
+
+test("config and binds agree on which keys are valid", async () => {
+  const { loadQmlJs } = await import("./load.mjs")
+  const Config = loadQmlJs("lib/Config.js")
+  const cases = ["SUPER + CTRL + M", "code:191", "SUPER + F35", "SUPER + F36", "CTRL + KP_0", "SHIFT + grave",
+    "SUPER + Esc", "code:999", "code:8", "code:7", "ALT + ALT + A", "SUPER + a", "CTRL + ALT + code:56", "x"]
+  for (const keys of cases) assert.equal(Config.validKeys(keys), H.isValidKeys(keys), keys)
 })
 
 test("luaString escapes quotes, backslashes and control characters", () => {
@@ -70,18 +88,20 @@ test("bindsFile drops invalid entries and duplicate keys", () => {
     { keys: "CTRL + code:10", name: "../bad", description: "x" },
     { keys: "ALT + code:11", name: "play-s1234abcd", description: "Play airhorn" }
   ])
-  const binds = lua.split("\n").filter(l => l.startsWith("hl.bind"))
+  const binds = lua.split("\n").filter(l => l.startsWith("pcall(hl.bind"))
   assert.equal(binds.length, 2)
-  assert.equal(binds[0], 'hl.bind("SUPER + CTRL + M", hl.dsp.global("omaboard:toggle"), { description = "Open \\"board\\"" })')
+  assert.equal(binds[0], 'pcall(hl.bind, "SUPER + CTRL + M", hl.dsp.global("omaboard:toggle"), { description = "Open \\"board\\"" })')
   assert.ok(binds[1].includes('"omaboard:play-s1234abcd"'))
   assert.ok(!lua.includes("os.exit"))
 })
 
-test("evalCode unbinds previous and new keys before binding", () => {
+test("evalCode unbinds only keys Omaboard bound before", () => {
   const code = H.evalCode("omaboard", [{ keys: "ALT + code:11", name: "stop", description: "Stop" }], ["SUPER + CTRL + M", "bogus\"key"])
   const lines = code.split("\n")
-  assert.deepEqual(lines.slice(0, 2), ['pcall(hl.unbind, "SUPER + CTRL + M")', 'pcall(hl.unbind, "ALT + code:11")'])
-  assert.equal(lines.length, 3)
+  assert.deepEqual(lines, [
+    'pcall(hl.unbind, "SUPER + CTRL + M")',
+    'pcall(hl.bind, "ALT + code:11", hl.dsp.global("omaboard:stop"), { description = "Stop" })'
+  ])
 })
 
 const BINDS_TEXT = `bindd
