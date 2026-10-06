@@ -106,6 +106,13 @@ omarchy-shell omaboard toggle
 omarchy-shell omaboard status              # JSON: mic, who is listening, what plays
 ```
 
+To reach the board from the Omarchy menu as well, add a row to
+`~/.config/omarchy/extensions/omarchy-menu.jsonc`:
+
+```jsonc
+"trigger.soundboard": {"icon":"󰃦","label":"Soundboard","action":"omarchy-shell omaboard toggle"},
+```
+
 ## How it works
 
 ```
