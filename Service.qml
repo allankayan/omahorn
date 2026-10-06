@@ -124,6 +124,7 @@ Item {
 
   Component.onCompleted: {
     log("starting from " + pluginDir)
+    if (vmicNodePresent) vmicSeen = true
     initProc.exec(["mkdir", "-p", configDir, stateDir, cacheDir + "/decoded"])
   }
 
@@ -199,7 +200,8 @@ Item {
         return
       }
       // Unreadable but present: run on defaults and leave the file alone.
-      root.report("Could not read config.json (" + FileViewError.toString(error) + "); using defaults")
+      root.configBroken = true
+      root.report("Could not read config.json (" + FileViewError.toString(error) + "); using defaults until it is fixed")
       root.applyConfig(Config.defaults(), false)
     }
     // Editors and shell redirects write in steps; read once they settle.
@@ -220,6 +222,10 @@ Item {
   }
 
   property string configText: ""
+  // config.json exists but does not parse. Until it is fixed, nothing is
+  // written to it: saving would replace the user's settings with whatever
+  // Omaboard fell back to.
+  property bool configBroken: false
 
   function startFirstRun(sounduxText) {
     var result = Config.firstRun(sounduxText)
@@ -239,14 +245,17 @@ Item {
     try {
       parsed = JSON.parse(raw)
     } catch (e) {
+      configBroken = true
       if (!ready) {
-        warn("config.json is not valid JSON, starting from defaults: " + e)
+        report("config.json is not valid JSON (" + e + "); using defaults until it is fixed")
         applyConfig(Config.defaults(), false)
       } else {
-        report("config.json has a syntax error; keeping the previous settings")
+        report("config.json has a syntax error; keeping the previous settings until it is fixed")
       }
       return
     }
+    if (configBroken) log("config.json is valid again")
+    configBroken = false
     applyConfig(Config.normalize(parsed), false)
   }
 
@@ -258,17 +267,15 @@ Item {
     var previous = config
     var wasReady = ready
     config = next
-    if (save) {
-      configText = JSON.stringify(next, null, 2) + "\n"
-      configFile.setText(configText)
-    } else {
-      configText = JSON.stringify(next, null, 2) + "\n"
-    }
+    configText = JSON.stringify(next, null, 2) + "\n"
+    if (save && !configBroken) configFile.setText(configText)
     if (!wasReady) {
       ready = true
       setupAudio()
       rescan()
-      syncBinds()
+      // Look at Hyprland's binds before taking any key, so a default never
+      // lands on top of one of the user's own.
+      refreshHyprBinds(syncBinds)
       return
     }
     if (JSON.stringify(previous.folders) !== JSON.stringify(next.folders)) rescan()
@@ -359,6 +366,9 @@ Item {
   property var peaks: ({})
   property var peaksIncoming: ({})
   property bool peaksQueued: false
+  // Sounds ffmpeg could not read, by the key they failed with: skipped until
+  // the file changes.
+  property var peaksFailed: ({})
 
   function peaksKey(sound) {
     return Library.hash(sound.path + "|" + sound.size + "|" + sound.mtime)
@@ -370,6 +380,7 @@ Item {
       var s = list[i]
       var key = peaksKey(s)
       if (peaks[s.id] && peaks[s.id].key === key) continue
+      if (peaksFailed[s.id] === key) continue
       items.push({ id: s.id, path: s.path, duration: s.duration || 0, key: key })
     }
     if (items.length === 0) return
@@ -377,9 +388,13 @@ Item {
       peaksQueued = true
       return
     }
+    // One argv string holds at most 128 KiB; a few hundred sounds per run
+    // stays well under it, and the rest follow when this batch exits.
+    var batch = items.slice(0, 300)
+    if (items.length > batch.length) peaksQueued = true
     peaksProc.keys = {}
-    for (var j = 0; j < items.length; j++) peaksProc.keys[items[j].id] = items[j].key
-    peaksProc.exec([pluginDir + "/bin/omaboard-peaks", cacheDir, JSON.stringify(items)])
+    for (var j = 0; j < batch.length; j++) peaksProc.keys[batch[j].id] = batch[j].key
+    peaksProc.exec([pluginDir + "/bin/omaboard-peaks", cacheDir, JSON.stringify(batch)])
   }
 
   Process {
@@ -396,6 +411,11 @@ Item {
     }
     onExited: {
       root.flushPeaks()
+      // Anything this batch did not deliver is retried with the next one, so
+      // record a failure for it instead of asking again forever.
+      for (var id in peaksProc.keys) {
+        if (!root.peaks[id] || root.peaks[id].key !== peaksProc.keys[id]) root.peaksFailed[id] = peaksProc.keys[id]
+      }
       if (root.peaksQueued) {
         root.peaksQueued = false
         Qt.callLater(function() { root.queuePeaks(root.sounds) })
@@ -559,6 +579,7 @@ Item {
       duration: sound.duration,
       preview: preview,
       decodedTarget: decodedTarget,
+      missingFile: false,
       retried: opts.retried === true,
       options: opts,
       procs: [],
@@ -628,13 +649,14 @@ Item {
         var reason = detail.length ? detail[detail.length - 1] : "exit " + exitCode
         if (proc.role === "mic" && /target not found/i.test(reason)) reason = "Omaboard Microphone disappeared"
         voice.failure = reason
+        voice.missingFile = voice.missingFile || /No such file or directory/i.test(String(errorText || ""))
       }
       if (voice.procs.length === 0) {
         var next = {}
         for (var key in voices) if (key !== voice.key) next[key] = voices[key]
         voices = next
         syncPlaying()
-        if (voice.failure && voice.decodedTarget && !voice.retried) {
+        if (voice.failure && voice.missingFile && voice.decodedTarget && !voice.retried && !voice.stopped) {
           // The converted copy went missing (a cleared cache): convert again.
           var nextDecoded = {}
           for (var target in decoded) if (target !== voice.decodedTarget) nextDecoded[target] = decoded[target]
@@ -776,9 +798,15 @@ Item {
     return false
   }
   property string lastDefaultSource: ""
+  // Only a virtual mic this instance has seen can go missing; the node list
+  // may simply not have arrived yet at startup.
+  property bool vmicSeen: false
 
   onDefaultSourceNameChanged: defaultSourceTimer.restart()
-  onVmicNodePresentChanged: if (audioReady && !vmicNodePresent) vmicLostTimer.restart()
+  onVmicNodePresentChanged: {
+    if (vmicNodePresent) vmicSeen = true
+    else if (audioReady && vmicSeen) vmicLostTimer.restart()
+  }
 
   Timer {
     id: defaultSourceTimer
@@ -885,10 +913,30 @@ Item {
     appliedKeys = keys
   }
 
+  // Hotkeys left unbound because a Hyprland bind of the user's own already
+  // has their keys: [{ name, label, by }].
+  property var blockedHotkeys: []
+
   function syncBinds() {
     if (!ready || !hotkeysEnabled) return
     adoptPreviousBinds()
-    var bindings = hotkeysSuspended ? [] : shortcuts.map(function(s) { return { keys: s.keys, name: s.name, description: s.description } })
+    var bindings = []
+    var blocked = []
+    if (!hotkeysSuspended) {
+      for (var i = 0; i < shortcuts.length; i++) {
+        var sc = shortcuts[i]
+        var taken = Hotkeys.findConflict(hyprBinds, sc.keys, "", bindPrefix)
+        if (taken) blocked.push({ name: sc.name, label: sc.label, by: taken.description || "another binding" })
+        else bindings.push({ keys: sc.keys, name: sc.name, description: sc.description })
+      }
+      if (JSON.stringify(blocked) !== JSON.stringify(blockedHotkeys)) {
+        blockedHotkeys = blocked
+        if (blocked.length > 0) {
+          report(blocked.map(function(b) { return b.label + " is taken by " + b.by }).join("; ")
+            + ". Pick other keys in Omaboard's settings.")
+        }
+      }
+    }
     if (!hotkeysSuspended) {
       var content = Hotkeys.bindsFile(appId, bindings)
       if (content !== lastBindsFile) {
@@ -899,6 +947,8 @@ Item {
     var code = Hotkeys.evalCode(appId, bindings, appliedKeys)
     appliedKeys = bindings.map(function(b) { return b.keys })
     if (code) hyprEval(code)
+    log("hotkeys: " + bindings.length + " bound" + (blockedHotkeys.length ? ", " + blockedHotkeys.length + " taken by Hyprland binds" : "")
+      + (hotkeysSuspended ? " (suspended while recording)" : ""))
   }
 
   FileView {
@@ -940,13 +990,13 @@ Item {
   // so they step aside until recording ends.
   function suspendHotkeys() {
     if (!hotkeysEnabled) {
-      bindsProc.run(["hyprctl", "binds"])
+      refreshHyprBinds(null)
       return
     }
     if (hotkeysSuspended) return
     hotkeysSuspended = true
     syncBinds()
-    bindsProc.run(["hyprctl", "binds"])
+    refreshHyprBinds(null)
   }
 
   function resumeHotkeys() {
@@ -955,9 +1005,27 @@ Item {
     syncBinds()
   }
 
+  property var bindsWaiters: []
+
+  function refreshHyprBinds(callback) {
+    if (callback) bindsWaiters = bindsWaiters.concat([callback])
+    if (!bindsProc.running && !bindsProc.pending) {
+      bindsProc.pending = true
+      bindsProc.run(["hyprctl", "binds"])
+    }
+  }
+
   Command {
     id: bindsProc
-    onFinished: function(exitCode, output) { root.hyprBinds = Hotkeys.parseHyprBinds(output) }
+    property bool pending: false
+    onFinished: function(exitCode, output) {
+      bindsProc.pending = false
+      if (exitCode === 0) root.hyprBinds = Hotkeys.parseHyprBinds(output)
+      else root.warn("hyprctl binds failed (" + exitCode + "); hotkeys are bound without a conflict check")
+      var waiters = root.bindsWaiters
+      root.bindsWaiters = []
+      for (var i = 0; i < waiters.length; i++) waiters[i]()
+    }
   }
 
   // What already uses these keys: another Omaboard hotkey or a Hyprland bind.
@@ -1028,7 +1096,10 @@ Item {
       sounds: sounds.length,
       playing: playing.map(function(p) { return p.name }),
       mic: { present: audio.present, default: audio.isDefault, passthrough: audio.mic, listeners: audio.listeners, error: audio.error },
-      hotkeys: shortcuts.map(function(s) { return { keys: s.label, action: s.action, path: s.path || "" } })
+      hotkeys: shortcuts.map(function(s) { return { keys: s.label, action: s.action, path: s.path || "" } }),
+      bound: appliedKeys,
+      blocked: blockedHotkeys,
+      configBroken: configBroken
     })
   }
 
