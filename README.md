@@ -11,9 +11,10 @@ overlay drawn with the shell's own components, so it follows whatever theme you
 use, and it costs nothing while you are not using it: no daemon, no web view, no
 audio processing running in the background.
 
-- **Plays into your mic.** A virtual "Omaboard Microphone" carries your real
-  microphone plus the sounds. By default it becomes your system input, so any app
-  set to the default device just works.
+- **Plays into your mic**, the way Soundux does: each sound goes straight into
+  the apps recording a microphone (Discord, the browser, games), mixed with your
+  voice. No virtual device, no setup, nothing changes in your audio settings.
+  Prefer a device? Switch to a virtual "Omaboard Microphone" instead.
 - **You hear it too**, on your own output and at your own volume.
 - **Global hotkeys** for any sound, bound through Hyprland, plus one to open the
   board and one to stop everything.
@@ -115,36 +116,42 @@ To reach the board from the Omarchy menu as well, add a row to
 
 ## How it works
 
+**Into apps** (the default). When you play a sound, Omaboard looks for the
+streams recording a microphone right now and links the sound into each of them;
+PipeWire mixes it with the microphone they already hear. The player is created
+unlinked, which holds it at its first sample until the links exist, so nothing
+is cut off. Your devices, defaults and voice path stay exactly as they were.
+
 ```
-                 ┌────────────────────────────── Omaboard Microphone ─┐
- your mic ──────►│ input.omaboard_mic ──────────────► omaboard_mic   │──► Discord, OBS,
- pw-play sound ─►│ (capture stream)                  (virtual source) │    games, browser
-                 └────────────────────────────────────────────────────┘
- pw-play sound ──────────────────────────────────────────────► your headphones
+ your mic ─────────────────────────────┐
+                                       ├──► Discord, browser, game (each app recording a mic)
+ pw-play sound ──(linked per app)──────┘
+ pw-play sound ──────────────────────────► your headphones
 ```
 
-The virtual microphone is one `module-remap-source` loaded into pipewire-pulse.
-It records your real microphone passively, so the device only opens while some
-app records the virtual one, and sounds are played straight into its capture
-stream. Each sound is a short-lived `pw-play` per destination; nothing runs
-between sounds.
+Every app recording a microphone gets your sounds unless you switch it off in
+settings, where apps show up as they start recording. The catch: an app has to
+be recording when the sound starts. Apps that only open the microphone while you
+hold push-to-talk need you to hold it.
 
-The passthrough follows your default input: pick another mic in Omarchy's audio
-panel and Omaboard switches to it. Picking a real mic as the default also turns
-off "use as default microphone", and picking Omaboard Microphone turns it back
-on; Omaboard never fights you over the default.
+**Virtual mic** (optional). A single `module-remap-source` in pipewire-pulse
+creates "Omaboard Microphone", which passes your real microphone through, and
+sounds are played into it. Apps that pick that device, or use the default input
+while it is the default, always hear sounds, push-to-talk or not. The passthrough
+follows your default input, and Omaboard never fights you over which device is
+the default. Switching back to *Into apps* removes the device as soon as no app
+is using it, so a call in progress carries on.
 
-Restarting the shell or reloading plugins leaves the virtual microphone alone,
-so calls carry on. Disabling or removing the plugin takes it away and restores
-your previous default input.
+Either way each sound is a short-lived `pw-play` per destination, and nothing
+runs between sounds.
 
 ## Settings
 
 ![Settings](docs/settings.png)
 
-<kbd>Ctrl</kbd>+<kbd>,</kbd> in the board covers everything: the default-mic
-switch, which microphone passes through, the volume of sounds in the mic and for
-you, overlap, hotkeys and folders. Changes save as you go to
+<kbd>Ctrl</kbd>+<kbd>,</kbd> in the board covers everything: how sounds reach
+people and which apps get them, the volume of sounds for them and for you,
+overlap, hotkeys and folders. Changes save as you go to
 `~/.config/omaboard/config.json`, which you can also edit by hand; the shell
 picks edits up live.
 
@@ -155,6 +162,8 @@ picks edits up live.
     { "path": "~/Music/Soundboard", "recursive": true },
     { "path": "~/Downloads/audios", "name": "Memes" }
   ],
+  "routing": "inject",
+  "exclude": ["obs"],
   "mic": "auto",
   "defaultMic": true,
   "monitor": true,
@@ -175,8 +184,10 @@ picks edits up live.
 | Key | |
 | --- | --- |
 | `folders` | Where sounds come from. `recursive` folders turn their subfolders into tabs; `name` renames the tab |
-| `mic` | `auto` follows your default input; or a source name from `pactl list short sources` |
-| `defaultMic` | Make Omaboard Microphone the system default input |
+| `routing` | `inject`: straight into apps recording a microphone. `vmic`: through the Omaboard Microphone device |
+| `exclude` | Apps (name or binary) that never get sounds injected |
+| `mic` | Virtual mic: `auto` follows your default input; or a source name from `pactl list short sources` |
+| `defaultMic` | Virtual mic: make Omaboard Microphone the system default input |
 | `monitor` | Hear sounds yourself |
 | `micVolume`, `monitorVolume` | 0–150%: what others hear, what you hear |
 | `overlap` | Let sounds play over each other instead of replacing the one playing |
@@ -189,16 +200,19 @@ to the file until it parses again.
 
 ## Troubleshooting
 
-**People hear me but not the sounds.** The app is probably recording your
-microphone directly. Set its input to *Default* (or to *Omaboard Microphone*).
-In Discord, also turn off *Noise Suppression* (Krisp): it is built to remove
-anything that is not a voice, sounds included.
+**People hear me but not the sounds.** In Discord, turn off *Noise
+Suppression* (Krisp): it is built to remove anything that is not a voice, sounds
+included. Then check the header of the board: *Live · Discord* means the app is
+getting them. If it says *No app listening*, the app is not recording right now
+(push-to-talk released, call not joined) or is switched off in settings. With
+the virtual mic, set the app's input to *Default* or *Omaboard Microphone*.
 
 **They hear the sounds twice, or with an echo.** You are probably on speakers,
 and your microphone picks up the copy you hear. Use headphones, or turn off
 *Hear sounds yourself*.
 
-**"Mic offline" in the board.** Check the module and the shell's log:
+**"Mic offline" in the board** (virtual mic only). Check the module and the
+shell's log:
 
 ```bash
 pactl list short modules | grep omaboard_mic
@@ -224,8 +238,8 @@ version of Omaboard only takes over after the shell restarts.
 omarchy plugin remove omaboard
 ```
 
-This removes the hotkeys and the virtual microphone and restores your default
-input. Settings stay in `~/.config/omaboard`; delete that folder and
+This removes the hotkeys and, if you used it, the virtual microphone, restoring
+your default input. Settings stay in `~/.config/omaboard`; delete that folder and
 `~/.cache/omaboard` to remove everything.
 
 ## Development
@@ -252,6 +266,7 @@ The pieces:
 | `BarWidget.qml` | The bar button |
 | `components/` | Pads, waveform, settings page, hotkey recorder |
 | `lib/` | Pure logic: search, config, hotkey parsing (tested with node) |
+| `bin/omaboard-inject` | Finds the apps recording a microphone and plays into them |
 | `bin/omaboard-audio` | Creates and manages the virtual microphone |
 | `bin/omaboard-scan` | Lists the sound folders, with cached durations |
 | `bin/omaboard-peaks` | Computes and caches waveforms |
