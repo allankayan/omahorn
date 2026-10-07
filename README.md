@@ -24,10 +24,19 @@ audio processing running in the background.
 - Plays wav, flac, ogg, opus, mp3 and aiff directly; m4a, aac, webm, wma and
   friends are converted once with ffmpeg and cached.
 
-## Install
+## Requirements
 
-Omahorn needs Omarchy 4 (the Quickshell-based shell). Everything else it uses
-ships with Omarchy: PipeWire with `pactl`, `pw-play`, `jq` and `ffmpeg`.
+Everything here ships with Omarchy 4; there is nothing to install.
+
+- **Omarchy 4**, whose shell (`omarchy-shell`, Quickshell 0.3) hosts the plugin
+- **PipeWire** with WirePlumber and pipewire-pulse: `pw-play`, `pw-link`,
+  `pw-dump` and `pactl`
+- **Hyprland**, for the global hotkeys
+- `bash`, `jq`, `find` and the usual coreutils
+- `ffmpeg` and `ffprobe`, for sound lengths, waveforms and playing m4a, aac,
+  webm or wma. Without them sounds still play, just without those.
+
+## Install
 
 ```bash
 omarchy plugin add https://github.com/allankayan/omahorn.git --enable
