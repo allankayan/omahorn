@@ -10,15 +10,15 @@ import "lib/Hotkeys.js" as Hotkeys
 import "lib/Config.js" as Config
 import "lib/Glyphs.js" as Glyphs
 
-// Omaboard's headless half: the sound library, playback, the virtual
+// Omahorn's headless half: the sound library, playback, the virtual
 // microphone and global hotkeys. The board, the bar widget and IPC all drive
 // this one object; none of them talk to PipeWire or Hyprland directly.
 //
 // Audio path, by config.routing:
 //   inject  every sound is linked straight into the recording streams of the
-//           apps using a microphone (bin/omaboard-inject), like Soundux; no
+//           apps using a microphone (bin/omahorn-inject), like Soundux; no
 //           device is added and your voice path is untouched;
-//   vmic    the "Omaboard Microphone" virtual source (bin/omaboard-audio)
+//   vmic    the "Omahorn Microphone" virtual source (bin/omahorn-audio)
 //           passes the real microphone through and sounds are played into it.
 // Either way a second copy plays on the default output so you hear it too.
 // Each copy is a short-lived pw-play; nothing runs while idle.
@@ -32,27 +32,27 @@ Item {
   property var manifest: null
   property var pluginRegistry: null
 
-  readonly property string pluginId: manifest && manifest.id ? String(manifest.id) : "omaboard"
-  // Global shortcut namespace (binds read `global omaboard:<name>`). The dev
+  readonly property string pluginId: manifest && manifest.id ? String(manifest.id) : "omahorn"
+  // Global shortcut namespace (binds read `global omahorn:<name>`). The dev
   // host runs without hotkeys so it never competes with the installed plugin.
-  property string appId: "omaboard"
+  property string appId: "omahorn"
   property bool hotkeysEnabled: true
   readonly property string pluginDir: decodeURIComponent(Qt.resolvedUrl(".").toString().replace(/^file:\/\//, "")).replace(/\/$/, "")
   readonly property string home: Quickshell.env("HOME")
-  readonly property string configDir: (Quickshell.env("XDG_CONFIG_HOME") || home + "/.config") + "/omaboard"
-  readonly property string stateDir: (Quickshell.env("XDG_STATE_HOME") || home + "/.local/state") + "/omaboard"
-  readonly property string cacheDir: (Quickshell.env("XDG_CACHE_HOME") || home + "/.cache") + "/omaboard"
+  readonly property string configDir: (Quickshell.env("XDG_CONFIG_HOME") || home + "/.config") + "/omahorn"
+  readonly property string stateDir: (Quickshell.env("XDG_STATE_HOME") || home + "/.local/state") + "/omahorn"
+  readonly property string cacheDir: (Quickshell.env("XDG_CACHE_HOME") || home + "/.cache") + "/omahorn"
   // Omarchy requires every Lua file in this folder on each Hyprland reload,
   // which is what keeps the hotkeys bound across reloads and logins.
   readonly property string bindsPath: (Quickshell.env("XDG_STATE_HOME") || home + "/.local/state") + "/omarchy/toggles/hypr/" + appId + ".lua"
   readonly property string shellJsonPath: (Quickshell.env("XDG_CONFIG_HOME") || home + "/.config") + "/omarchy/shell.json"
   readonly property string sounduxConfigPath: (Quickshell.env("XDG_CONFIG_HOME") || home + "/.config") + "/Soundux/config.json"
 
-  readonly property string vmicName: "omaboard_mic"
-  readonly property string captureName: "input.omaboard_mic"
-  // Every bind Omaboard makes is described with this prefix, which is how it
+  readonly property string vmicName: "omahorn_mic"
+  readonly property string captureName: "input.omahorn_mic"
+  // Every bind Omahorn makes is described with this prefix, which is how it
   // tells its binds apart from the user's (the dev host gets its own).
-  readonly property string bindPrefix: appId === "omaboard" ? "Omaboard: " : "Omaboard (" + appId + "): "
+  readonly property string bindPrefix: appId === "omahorn" ? "Omahorn: " : "Omahorn (" + appId + "): "
 
   // ------------------------------------------------------------- state
 
@@ -109,8 +109,8 @@ Item {
 
   // ------------------------------------------------------------- logging
 
-  function log(message) { console.info("omaboard: " + message) }
-  function warn(message) { console.warn("omaboard: " + message) }
+  function log(message) { console.info("omahorn: " + message) }
+  function warn(message) { console.warn("omahorn: " + message) }
 
   // Inline in the board when it is open, a desktop notification otherwise.
   function report(text, kind) {
@@ -121,13 +121,13 @@ Item {
     noticeKind = level
     noticeTimer.restart()
     noticePosted(text, level)
-    if (!boardOpen && level === "error") notify("Omaboard", text)
+    if (!boardOpen && level === "error") notify("Omahorn", text)
   }
 
   function notify(title, body) {
     Quickshell.execDetached(["sh", "-c",
-      'if command -v omarchy-notification-send >/dev/null; then exec omarchy-notification-send --app-name Omaboard -g "$1" "$2" "$3"; '
-      + 'else exec notify-send -a Omaboard "$2" "$3"; fi', "sh", Glyphs.app, title, body])
+      'if command -v omarchy-notification-send >/dev/null; then exec omarchy-notification-send --app-name Omahorn -g "$1" "$2" "$3"; '
+      + 'else exec notify-send -a Omahorn "$2" "$3"; fi', "sh", Glyphs.app, title, body])
   }
 
   Timer {
@@ -145,9 +145,9 @@ Item {
   }
 
   // Runs detached once the shell is done with this object. A plugin reload or
-  // a shell restart leaves Omaboard listed in shell.json, and then nothing
+  // a shell restart leaves Omahorn listed in shell.json, and then nothing
   // changes: apps keep the virtual microphone and the next instance takes the
-  // hotkeys over. Disabling or removing the plugin takes Omaboard out of
+  // hotkeys over. Disabling or removing the plugin takes Omahorn out of
   // shell.json, and then its hotkeys and virtual microphone go too. Inline
   // rather than a script, because `plugin remove` deletes the plugin folder.
   readonly property string cleanupScript: [
@@ -164,7 +164,7 @@ Item {
   ].join("\n")
 
   Component.onDestruction: {
-    Quickshell.execDetached(["bash", "-c", cleanupScript, "omaboard-cleanup",
+    Quickshell.execDetached(["bash", "-c", cleanupScript, "omahorn-cleanup",
       shellJsonPath, bindsPath, stateDir,
       Hotkeys.evalCode(appId, [], appliedKeys), vmicName, pluginId])
   }
@@ -240,7 +240,7 @@ Item {
   property string configText: ""
   // config.json exists but does not parse. Until it is fixed, nothing is
   // written to it: saving would replace the user's settings with whatever
-  // Omaboard fell back to.
+  // Omahorn fell back to.
   property bool configBroken: false
 
   function startFirstRun(sounduxText) {
@@ -348,7 +348,7 @@ Item {
       return
     }
     scanning = true
-    scanProc.run([pluginDir + "/bin/omaboard-scan", JSON.stringify(config.folders)])
+    scanProc.run([pluginDir + "/bin/omahorn-scan", JSON.stringify(config.folders)])
   }
 
   // Cheap enough to run on every open: only new files get probed.
@@ -415,7 +415,7 @@ Item {
     if (items.length > batch.length) peaksQueued = true
     peaksProc.keys = {}
     for (var j = 0; j < batch.length; j++) peaksProc.keys[batch[j].id] = batch[j].key
-    peaksProc.exec([pluginDir + "/bin/omaboard-peaks", cacheDir, JSON.stringify(batch)])
+    peaksProc.exec([pluginDir + "/bin/omahorn-peaks", cacheDir, JSON.stringify(batch)])
   }
 
   Process {
@@ -486,7 +486,7 @@ Item {
     if (decodeJob || decodeQueue.length === 0) return
     decodeJob = decodeQueue[0]
     decodeQueue = decodeQueue.slice(1)
-    decodeProc.run([pluginDir + "/bin/omaboard-decode", decodeJob.source, decodeJob.target], decodeJob)
+    decodeProc.run([pluginDir + "/bin/omahorn-decode", decodeJob.source, decodeJob.target], decodeJob)
   }
 
   Command {
@@ -525,9 +525,9 @@ Item {
 
   function streamProps(role, sound) {
     var props = [
-      "application.name = \"Omaboard\"",
-      "application.id = \"omaboard\"",
-      "node.name = \"omaboard." + role + "\"",
+      "application.name = \"Omahorn\"",
+      "application.id = \"omahorn\"",
+      "node.name = \"omahorn." + role + "\"",
       "media.name = " + spaString(sound.name),
       "state.restore-props = false",
       "state.restore-target = false"
@@ -580,14 +580,14 @@ Item {
     var toMic = !preview && micReady
     var toMonitor = preview || config.monitor
     if (!preview && !micReady) {
-      report(audio.error ? audio.error : "Omaboard Microphone is not ready; playing only for you")
+      report(audio.error ? audio.error : "Omahorn Microphone is not ready; playing only for you")
       audioCommand(["ensure", config.mic])
       toMonitor = true
     }
     var gain = sound.volume || 100
     var micAmplitude = Library.amplitude(config.micVolume * gain / 100)
     var parts = []
-    if (toMic && injecting) parts.push({ role: "mic", command: [pluginDir + "/bin/omaboard-inject", "play", file, micAmplitude.toFixed(4), sound.name, JSON.stringify(config.exclude)] })
+    if (toMic && injecting) parts.push({ role: "mic", command: [pluginDir + "/bin/omahorn-inject", "play", file, micAmplitude.toFixed(4), sound.name, JSON.stringify(config.exclude)] })
     else if (toMic) parts.push({ role: "mic", command: playCommand(file, captureName, micAmplitude, "mic", sound) })
     if (toMonitor) parts.push({ role: "monitor", command: playCommand(file, "", Library.amplitude(config.monitorVolume * gain / 100), "monitor", sound) })
     if (parts.length === 0) return false
@@ -680,7 +680,7 @@ Item {
       if (exitCode !== 0 && !voice.stopped) {
         var detail = String(errorText || "").trim().split("\n").filter(function(l) { return l.trim() })
         var reason = detail.length ? detail[detail.length - 1] : "exit " + exitCode
-        if (proc.role === "mic" && /target not found/i.test(reason)) reason = "Omaboard Microphone disappeared"
+        if (proc.role === "mic" && /target not found/i.test(reason)) reason = "Omahorn Microphone disappeared"
         voice.failure = reason
         voice.missingFile = voice.missingFile || /No such file or directory/i.test(String(errorText || ""))
       }
@@ -751,7 +751,7 @@ Item {
     if (audioJob || audioQueue.length === 0) return
     audioJob = audioQueue[0]
     audioQueue = audioQueue.slice(1)
-    audioProc.run([pluginDir + "/bin/omaboard-audio"].concat(audioJob.args), audioJob)
+    audioProc.run([pluginDir + "/bin/omahorn-audio"].concat(audioJob.args), audioJob)
   }
 
   function applyAudioOutput(text, errorText, job) {
@@ -759,7 +759,7 @@ Item {
     var status = null
     try { status = JSON.parse(String(text || "").trim().split("\n").pop()) } catch (e) { status = null }
     if (!status || typeof status !== "object") {
-      warn("omaboard-audio " + job.args.join(" ") + " printed no status: " + String(errorText || "").trim())
+      warn("omahorn-audio " + job.args.join(" ") + " printed no status: " + String(errorText || "").trim())
       status = { ok: false, error: "Could not query the audio setup", present: before.present, mic: before.mic, micDescription: before.micDescription, isDefault: before.isDefault, sources: before.sources || [], listeners: [] }
     }
     audio = status
@@ -808,7 +808,7 @@ Item {
           audioCommand(["set-default", "on"], function(after) {
             if (after.isDefault) {
               saveState({ defaultApplied: true })
-              log("Omaboard Microphone is now the default input")
+              log("Omahorn Microphone is now the default input")
             } else if (after.error) report(after.error)
           })
         } else {
@@ -840,7 +840,7 @@ Item {
         return
       }
       audioCommand(["teardown"], function(after) {
-        if (!after.present) log("removed Omaboard Microphone; sounds now go straight into apps")
+        if (!after.present) log("removed Omahorn Microphone; sounds now go straight into apps")
         else if (after.error) report(after.error)
       })
     })
@@ -856,7 +856,7 @@ Item {
 
   function refreshTargets() {
     if (!injecting || targetsProc.running) return
-    targetsProc.run([pluginDir + "/bin/omaboard-inject", "list", JSON.stringify(config.exclude)])
+    targetsProc.run([pluginDir + "/bin/omahorn-inject", "list", JSON.stringify(config.exclude)])
   }
 
   Command {
@@ -893,7 +893,7 @@ Item {
   }
 
   // Default input changes made anywhere (Omarchy's audio panel, pavucontrol)
-  // decide whether Omaboard is the default mic and which mic it passes on.
+  // decide whether Omahorn is the default mic and which mic it passes on.
   readonly property string defaultSourceName: Pipewire.defaultAudioSource ? String(Pipewire.defaultAudioSource.name || "") : ""
   readonly property bool vmicNodePresent: {
     var nodes = Pipewire.nodes ? Pipewire.nodes.values : []
@@ -1014,7 +1014,7 @@ Item {
     appliedKeys = keys
   }
 
-  // Keys Hyprland currently binds for Omaboard, whoever bound them: an earlier
+  // Keys Hyprland currently binds for Omahorn, whoever bound them: an earlier
   // instance, a reload of the binds file. Releasing them before binding is
   // what keeps a key from ending up bound twice, which would fire twice.
   // A key the user also bound is left alone, since unbinding is per key.
@@ -1038,7 +1038,7 @@ Item {
   property var blockedHotkeys: []
 
   // Binds always start from a fresh look at Hyprland's own: a default must
-  // never land on a key the user bound, and every bind Omaboard already has
+  // never land on a key the user bound, and every bind Omahorn already has
   // is released first so none is ever doubled.
   function syncBinds() {
     if (!ready || !hotkeysEnabled) return
@@ -1061,7 +1061,7 @@ Item {
         blockedHotkeys = blocked
         if (blocked.length > 0) {
           report(blocked.map(function(b) { return b.label + " is taken by " + b.by }).join("; ")
-            + ". Pick other keys in Omaboard's settings.")
+            + ". Pick other keys in Omahorn's settings.")
         }
       }
     }
@@ -1156,7 +1156,7 @@ Item {
     }
   }
 
-  // What already uses these keys: another Omaboard hotkey or a Hyprland bind.
+  // What already uses these keys: another Omahorn hotkey or a Hyprland bind.
   // Returns null when they are free.
   function hotkeyConflict(hotkey, owner) {
     if (!hotkey) return null
@@ -1165,7 +1165,7 @@ Item {
       var ownerMatches = owner && ((used.kind === "action" && owner.action === used.name) || (used.kind === "sound" && owner.path === used.path))
       if (!ownerMatches) {
         return {
-          kind: "omaboard",
+          kind: "omahorn",
           description: used.kind === "sound" ? soundLabel(used.path) : (used.name === "toggle" ? "Open soundboard" : "Stop all sounds"),
           used: used
         }
@@ -1177,7 +1177,7 @@ Item {
   }
 
   // owner: { action: "toggle" | "stop" } or { path }. hotkey null clears it.
-  // A key taken by another Omaboard hotkey moves here; Hyprland binds are
+  // A key taken by another Omahorn hotkey moves here; Hyprland binds are
   // never overridden (the board refuses those before calling this).
   function assignHotkey(owner, hotkey) {
     var value = hotkey ? { keys: hotkey.keys, label: hotkey.label } : null
@@ -1241,7 +1241,7 @@ Item {
   }
 
   IpcHandler {
-    target: "omaboard"
+    target: "omahorn"
 
     function toggle(): void { root.toggleBoard() }
     function open(): void { root.openBoard() }

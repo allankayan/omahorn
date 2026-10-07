@@ -16,7 +16,7 @@ Item {
   property string message: ""
   property bool blocked: false
   property string heldModifiers: ""
-  // function(hotkey) -> { kind: "hyprland" | "omaboard", description } | null
+  // function(hotkey) -> { kind: "hyprland" | "omahorn", description } | null
   property var conflictCheck: null
 
   property color background: Color.background

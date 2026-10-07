@@ -1,9 +1,9 @@
 #!/bin/bash
 
-# Lists the sounds in Omaboard's library folders as JSON lines.
+# Lists the sounds in Omahorn's library folders as JSON lines.
 #
 # Takes the folders as a JSON array, as the first argument or on stdin:
-#   omaboard-scan '[{"path": "~/Music/Soundboard", "name": "", "recursive": true}]'
+#   omahorn-scan '[{"path": "~/Music/Soundboard", "name": "", "recursive": true}]'
 #
 # Prints one object per sound, in folder order, each file once:
 #   {"path": "...", "folder": "...", "category": "...", "file": "...",
@@ -16,7 +16,7 @@
 
 set -uo pipefail
 
-readonly CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/omaboard"
+readonly CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/omahorn"
 readonly DURATIONS="$CACHE_DIR/durations.tsv"
 readonly EXTENSIONS="wav flac ogg oga opus mp3 aiff aif m4a aac webm mka wma caf"
 
@@ -90,7 +90,7 @@ main() {
   local folders_json files
   if (($# > 0)); then folders_json="$1"; else folders_json=$(cat); fi
   if ! jq -e 'type == "array"' <<<"$folders_json" >/dev/null 2>&1; then
-    echo "omaboard-scan: expected a JSON array of folders" >&2
+    echo "omahorn-scan: expected a JSON array of folders" >&2
     exit 2
   fi
 

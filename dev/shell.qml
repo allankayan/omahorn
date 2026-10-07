@@ -2,15 +2,15 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import Quickshell.Hyprland
-import ".." as Omaboard
+import ".." as Omahorn
 
-// Development host: runs Omaboard in its own Quickshell instance, outside
+// Development host: runs Omahorn in its own Quickshell instance, outside
 // omarchy-shell, with a stand-in for the shell's plugin API. Commons and Ui
 // are symlinks to Omarchy's own, so the board renders exactly as it will
 // in the shell.
 //
 //   qs -p dev/shell.qml
-//   qs -p dev/shell.qml ipc call omaboard toggle
+//   qs -p dev/shell.qml ipc call omahorn toggle
 ShellRoot {
   id: root
 
@@ -25,19 +25,19 @@ ShellRoot {
     function updateEntryInline(id, settings) { return false }
   }
 
-  // Hotkeys stay off unless asked for (OMABOARD_DEV_HOTKEYS=1), so the dev
-  // instance never fights an installed Omaboard over the same keys.
-  Omaboard.Service {
+  // Hotkeys stay off unless asked for (OMAHORN_DEV_HOTKEYS=1), so the dev
+  // instance never fights an installed Omahorn over the same keys.
+  Omahorn.Service {
     id: service
     shell: hostShell
-    manifest: ({ id: "omaboard" })
-    appId: "omaboard-dev"
-    hotkeysEnabled: Quickshell.env("OMABOARD_DEV_HOTKEYS") === "1"
+    manifest: ({ id: "omahorn" })
+    appId: "omahorn-dev"
+    hotkeysEnabled: Quickshell.env("OMAHORN_DEV_HOTKEYS") === "1"
   }
 
   // Opens on a monitor you are not using and leaves the keyboard alone;
-  // OMABOARD_DEV_FOCUS=1 restores the real behaviour for hands-on testing.
-  readonly property bool handsOn: Quickshell.env("OMABOARD_DEV_FOCUS") === "1"
+  // OMAHORN_DEV_FOCUS=1 restores the real behaviour for hands-on testing.
+  readonly property bool handsOn: Quickshell.env("OMAHORN_DEV_FOCUS") === "1"
   readonly property var quietScreen: {
     var focused = Hyprland.focusedMonitor ? Hyprland.focusedMonitor.name : ""
     var screens = Quickshell.screens
@@ -45,20 +45,20 @@ ShellRoot {
     return null
   }
 
-  Omaboard.Board {
+  Omahorn.Board {
     id: board
     shell: hostShell
     service: service
-    manifest: ({ id: "omaboard" })
+    manifest: ({ id: "omahorn" })
     grabKeyboard: root.handsOn
-    targetScreen: root.handsOn || Quickshell.env("OMABOARD_DEV_SCREEN") === "auto" ? null : root.quietScreen
+    targetScreen: root.handsOn || Quickshell.env("OMAHORN_DEV_SCREEN") === "auto" ? null : root.quietScreen
   }
 
   // Simulated key presses, so the board's keyboard handling can be driven
   // without injecting input into the session:
   //   dev/run key ctrl+k     dev/run key Return     dev/run key b
   IpcHandler {
-    target: "omaboard-dev"
+    target: "omahorn-dev"
 
     function key(spec: string): string {
       var parts = String(spec).split("+")

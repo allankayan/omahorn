@@ -18,7 +18,7 @@ Item {
   property var manifest: null
   property var service: null
 
-  readonly property string pluginId: manifest && manifest.id ? String(manifest.id) : "omaboard"
+  readonly property string pluginId: manifest && manifest.id ? String(manifest.id) : "omahorn"
 
   property bool opened: false
   // Hosts can open the board without taking the keyboard or pick its screen
@@ -389,7 +389,7 @@ Item {
     screen: root.targetScreen
     anchors { top: true; bottom: true; left: true; right: true }
     color: "transparent"
-    WlrLayershell.namespace: "omaboard"
+    WlrLayershell.namespace: "omahorn"
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.keyboardFocus: root.opened && root.grabKeyboard ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
     exclusionMode: ExclusionMode.Ignore
@@ -491,7 +491,7 @@ Item {
                   if (root.service.injecting) return apps.length > 0
                     ? "Sounds go straight into " + apps.join(", ")
                     : "Sounds go into any app recording a microphone; none is right now"
-                  return ok ? "Omaboard Microphone · " + (root.audio.micDescription || "no microphone")
+                  return ok ? "Omahorn Microphone · " + (root.audio.micDescription || "no microphone")
                     : (root.audio.error || "The virtual microphone is not set up")
                 }
                 onClicked: {

@@ -1,10 +1,12 @@
 {
   "schemaVersion": 1,
-  "id": "omaboard",
-  "name": "Omaboard",
+  "id": "omahorn",
+  "name": "Omahorn",
   "version": "0.1.0",
   "author": "Allan Kayan",
   "license": "MIT",
+  "homepage": "https://github.com/allankayan/omahorn",
+  "repository": "https://github.com/allankayan/omahorn",
   "description": "Soundboard for Omarchy: play sounds into your microphone from a keyboard-first board or global hotkeys.",
   "kinds": [
     "service",
@@ -17,7 +19,7 @@
     "barWidget": "BarWidget.qml"
   },
   "barWidget": {
-    "displayName": "Omaboard",
+    "displayName": "Omahorn",
     "description": "Opens the soundboard; shows what is playing",
     "category": "Audio",
     "allowMultiple": false,

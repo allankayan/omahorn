@@ -6,8 +6,8 @@
 # it at its first sample, and is then linked into each app's input ports;
 # PipeWire mixes it with the microphone those apps already hear.
 #
-#   omaboard-inject list [<exclude-json>]
-#   omaboard-inject play <file> <volume> <media-name> [<exclude-json>]
+#   omahorn-inject list [<exclude-json>]
+#   omahorn-inject play <file> <volume> <media-name> [<exclude-json>]
 #
 # `list` prints the apps recording a microphone right now:
 #   [{"node": 123, "app": "Zen", "binary": "zen-bin"}]
@@ -19,7 +19,7 @@
 set -uo pipefail
 
 # Apps that record the microphone only to show its level.
-readonly BUILTIN_EXCLUDE='["quickshell", "PulseAudio Volume Control", "pavucontrol", "wpctl", "Omaboard"]'
+readonly BUILTIN_EXCLUDE='["quickshell", "PulseAudio Volume Control", "pavucontrol", "wpctl", "Omahorn"]'
 
 # Streams recording a microphone: fed by an Audio/Source node, not a filter
 # or loopback (those carry node.link-group), not a level meter, not ours.
@@ -33,7 +33,7 @@ readonly TARGETS_JQ='
   | [ $nodes[]
       | select(props["media.class"] == "Stream/Input/Audio")
       | select(props["node.link-group"] == null)
-      | select((props["node.name"] // "") | startswith("omaboard") | not)
+      | select((props["node.name"] // "") | startswith("omahorn") | not)
       | select((props["stream.monitor"] // false | tostring) != "true")
       | select((props["node.passive"] // false | tostring) != "true")
       | (props["application.name"] // props["node.name"] // "Unknown") as $app
@@ -93,13 +93,13 @@ link_into() {
 }
 
 cmd_play() {
-  local file="${1:?usage: omaboard-inject play <file> <volume> <media-name> [<exclude-json>]}"
-  local volume="${2:-1}" name="${3:-Omaboard}" exclude="${4:-[]}"
+  local file="${1:?usage: omahorn-inject play <file> <volume> <media-name> [<exclude-json>]}"
+  local volume="${2:-1}" name="${3:-Omahorn}" exclude="${4:-[]}"
   [[ -r $file ]] || { echo "cannot read $file" >&2; exit 1; }
 
   name=$(printf '%s' "$name" | tr -d '\000-\037"\\' | cut -c1-96)
-  local node="omaboard.inject.$$"
-  local props="{ application.name = \"Omaboard\" application.id = \"omaboard\" node.name = \"$node\" media.name = \"$name\" state.restore-props = false state.restore-target = false }"
+  local node="omahorn.inject.$$"
+  local props="{ application.name = \"Omahorn\" application.id = \"omahorn\" node.name = \"$node\" media.name = \"$name\" state.restore-props = false state.restore-target = false }"
 
   # Unlinked, the player waits at its first sample until it has somewhere
   # to go, so nothing is lost while the links are made.

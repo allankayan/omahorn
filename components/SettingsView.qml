@@ -64,7 +64,7 @@ Item {
     } else {
       list.push(
         { type: "toggle", key: "defaultMic", label: "Use as default microphone", description: "Apps that record the default input hear your sounds, no per-app setup" },
-        { type: "mic", label: "Your microphone", description: "Mixed into Omaboard Microphone along with the sounds" },
+        { type: "mic", label: "Your microphone", description: "Mixed into Omahorn Microphone along with the sounds" },
         { type: "listeners" })
     }
     list.push(
@@ -308,12 +308,12 @@ Item {
           if (modelData.type === "info") return modelData.text
           var a = root.audio
           if (!a) return ""
-          if (!a.present) return a.error ? a.error : "Omaboard Microphone is not available yet."
+          if (!a.present) return a.error ? a.error : "Omahorn Microphone is not available yet."
           var apps = (a.listeners || []).map(function(l) { return l.app })
           if (apps.length > 0) return Glyphs.mic + "  Live in " + apps.join(", ")
           return a.isDefault
             ? "No app is recording right now. Apps on the default input will hear your sounds."
-            : "No app is recording it. Pick “Omaboard Microphone” as the input in your call app."
+            : "No app is recording it. Pick “Omahorn Microphone” as the input in your call app."
         }
       }
     }
@@ -375,7 +375,7 @@ Item {
             var d = row.entry
             if (d.type === "routing") return root.injecting
               ? "Straight into apps recording a microphone, like Soundux; nothing new in your devices"
-              : "Through an Omaboard Microphone device that apps pick as their input"
+              : "Through an Omahorn Microphone device that apps pick as their input"
             if (d.type === "app") return (d.app.live ? "Recording now" : "Not recording right now")
               + (d.app.app !== d.app.label ? " · " + d.app.app : (d.app.binary ? " · " + d.app.binary : ""))
             if (d.type === "folder") return (d.folder.recursive ? "Includes subfolders" : "This folder only") + (row.hasCursor ? "  ·  Enter open · R subfolders · Del remove" : "")

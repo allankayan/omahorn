@@ -35,7 +35,7 @@ function wav(path, seconds, shape = () => 0.5, rate = 8000) {
 }
 
 function fixture() {
-  const dir = mkdtempSync(join(tmpdir(), "omaboard-test-"))
+  const dir = mkdtempSync(join(tmpdir(), "omahorn-test-"))
   const lib = join(dir, "lib")
   wav(join(lib, "root sound.wav"), 1)
   wav(join(lib, "Memes", "bruh.wav"), 0.5)
@@ -47,7 +47,7 @@ function fixture() {
 }
 
 function scan(folders, env) {
-  const out = execFileSync(join(root, "bin/omaboard-scan"), [JSON.stringify(folders)], { env, encoding: "utf8" })
+  const out = execFileSync(join(root, "bin/omahorn-scan"), [JSON.stringify(folders)], { env, encoding: "utf8" })
   return out.trim().split("\n").filter(Boolean).map(line => JSON.parse(line))
 }
 
@@ -75,8 +75,8 @@ test("scan: non-recursive folders list only their own files, once", () => {
 
 test("scan: missing folders and ~ paths are handled", () => {
   const { env } = fixture()
-  assert.deepEqual(scan([{ path: "/nonexistent/omaboard" }], env), [])
-  const home = scan([{ path: "~/definitely-not-a-folder-omaboard" }], env)
+  assert.deepEqual(scan([{ path: "/nonexistent/omahorn" }], env), [])
+  const home = scan([{ path: "~/definitely-not-a-folder-omahorn" }], env)
   assert.deepEqual(home, [])
 })
 
@@ -90,7 +90,7 @@ test("scan: a folder under a hidden directory still lists its sounds", () => {
 })
 
 test("scan: rejects input that is not a folder list", () => {
-  const result = spawnSync(join(root, "bin/omaboard-scan"), ["{}"], { encoding: "utf8" })
+  const result = spawnSync(join(root, "bin/omahorn-scan"), ["{}"], { encoding: "utf8" })
   assert.equal(result.status, 2)
 })
 
@@ -99,7 +99,7 @@ test("scan: durations come from ffprobe and are cached", { skip: !hasFfprobe && 
   const first = scan([{ path: lib, recursive: true }], env)
   const sound = first.find(s => s.file === "root sound.wav")
   assert.ok(Math.abs(sound.duration - 1) < 0.01)
-  assert.ok(existsSync(join(dir, "cache", "omaboard", "durations.tsv")))
+  assert.ok(existsSync(join(dir, "cache", "omahorn", "durations.tsv")))
   const second = scan([{ path: lib, recursive: true }], env)
   assert.deepEqual(second, first)
 })
@@ -110,7 +110,7 @@ test("peaks: loudness envelope follows the sound and is cached", { skip: !hasFfp
   wav(file, 2, t => t / 2)
   const cache = join(dir, "peaks-cache")
   const items = JSON.stringify([{ id: "s1", path: file, duration: 2, key: "k1" }, { id: "gone", path: "/nope.wav", duration: 1, key: "k2" }])
-  const run = () => execFileSync(join(root, "bin/omaboard-peaks"), [cache, items], { encoding: "utf8" }).trim().split("\n").map(l => JSON.parse(l))
+  const run = () => execFileSync(join(root, "bin/omahorn-peaks"), [cache, items], { encoding: "utf8" }).trim().split("\n").map(l => JSON.parse(l))
   const out = run()
   assert.equal(out.length, 1)
   assert.equal(out[0].id, "s1")

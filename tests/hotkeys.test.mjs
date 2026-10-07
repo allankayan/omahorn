@@ -81,7 +81,7 @@ test("luaString escapes quotes, backslashes and control characters", () => {
 })
 
 test("bindsFile drops invalid entries and duplicate keys", () => {
-  const lua = H.bindsFile("omaboard", [
+  const lua = H.bindsFile("omahorn", [
     { keys: "SUPER + CTRL + M", name: "toggle", description: 'Open "board"' },
     { keys: "SUPER + CTRL + M", name: "stop", description: "dupe" },
     { keys: "SUPER + X\"); os.exit()", name: "evil", description: "x" },
@@ -90,17 +90,17 @@ test("bindsFile drops invalid entries and duplicate keys", () => {
   ])
   const binds = lua.split("\n").filter(l => l.startsWith("pcall(hl.bind"))
   assert.equal(binds.length, 2)
-  assert.equal(binds[0], 'pcall(hl.bind, "SUPER + CTRL + M", hl.dsp.global("omaboard:toggle"), { description = "Open \\"board\\"" })')
-  assert.ok(binds[1].includes('"omaboard:play-s1234abcd"'))
+  assert.equal(binds[0], 'pcall(hl.bind, "SUPER + CTRL + M", hl.dsp.global("omahorn:toggle"), { description = "Open \\"board\\"" })')
+  assert.ok(binds[1].includes('"omahorn:play-s1234abcd"'))
   assert.ok(!lua.includes("os.exit"))
 })
 
-test("evalCode unbinds only keys Omaboard bound before", () => {
-  const code = H.evalCode("omaboard", [{ keys: "ALT + code:11", name: "stop", description: "Stop" }], ["SUPER + CTRL + M", "bogus\"key"])
+test("evalCode unbinds only keys Omahorn bound before", () => {
+  const code = H.evalCode("omahorn", [{ keys: "ALT + code:11", name: "stop", description: "Stop" }], ["SUPER + CTRL + M", "bogus\"key"])
   const lines = code.split("\n")
   assert.deepEqual(lines, [
     'pcall(hl.unbind, "SUPER + CTRL + M")',
-    'pcall(hl.bind, "ALT + code:11", hl.dsp.global("omaboard:stop"), { description = "Stop" })'
+    'pcall(hl.bind, "ALT + code:11", hl.dsp.global("omahorn:stop"), { description = "Stop" })'
   ])
 })
 
@@ -130,7 +130,7 @@ bindd
 	key: M
 	keycode: 0
 	catchall: false
-	description: Omaboard: open soundboard
+	description: Omahorn: open soundboard
 	dispatcher: __lua
 	arg: 300
 `
@@ -145,17 +145,17 @@ test("parses hyprctl binds text, keeping keycodes", () => {
 })
 
 test("reads the keys of both generated file formats", () => {
-  const oldFormat = 'hl.bind("SUPER + CTRL + M", hl.dsp.global("omaboard:toggle"), { description = "x" })'
-  const newFormat = 'pcall(hl.bind, "CTRL + ALT + code:56", hl.dsp.global("omaboard:play-s1"), { description = "y" })'
+  const oldFormat = 'hl.bind("SUPER + CTRL + M", hl.dsp.global("omahorn:toggle"), { description = "x" })'
+  const newFormat = 'pcall(hl.bind, "CTRL + ALT + code:56", hl.dsp.global("omahorn:play-s1"), { description = "y" })'
   assert.deepEqual(H.keysInBindsFile(oldFormat + "\n" + newFormat + "\n" + newFormat), ["SUPER + CTRL + M", "CTRL + ALT + code:56"])
-  assert.deepEqual(H.keysInBindsFile(H.bindsFile("omaboard", [{ keys: "SUPER + F13", name: "stop", description: "z" }])), ["SUPER + F13"])
+  assert.deepEqual(H.keysInBindsFile(H.bindsFile("omahorn", [{ keys: "SUPER + F13", name: "stop", description: "z" }])), ["SUPER + F13"])
   assert.deepEqual(H.keysInBindsFile('hl.bind("rm -rf", x)'), [])
 })
 
 test("finds conflicts by keycode or by key name, ignoring our own", () => {
   const binds = H.parseHyprBinds(BINDS_TEXT)
-  assert.equal(H.findConflict(binds, "SUPER + ALT + code:10", "1", "Omaboard").description, "Move window to workspace 1")
-  assert.equal(H.findConflict(binds, "SUPER + CTRL + code:26", "E", "Omaboard").description, "Emoji picker")
-  assert.equal(H.findConflict(binds, "SUPER + CTRL + code:58", "M", "Omaboard"), null)
-  assert.equal(H.findConflict(binds, "SUPER + code:10", "1", "Omaboard"), null)
+  assert.equal(H.findConflict(binds, "SUPER + ALT + code:10", "1", "Omahorn").description, "Move window to workspace 1")
+  assert.equal(H.findConflict(binds, "SUPER + CTRL + code:26", "E", "Omahorn").description, "Emoji picker")
+  assert.equal(H.findConflict(binds, "SUPER + CTRL + code:58", "M", "Omahorn"), null)
+  assert.equal(H.findConflict(binds, "SUPER + code:10", "1", "Omahorn"), null)
 })

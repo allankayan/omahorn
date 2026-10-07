@@ -2,7 +2,7 @@
 
 # Prints the loudness envelope of each sound, for the waveforms on the pads.
 #
-#   omaboard-peaks <cache-dir> '<json>'
+#   omahorn-peaks <cache-dir> '<json>'
 #
 # <json> is an array of {"id", "path", "duration", "key"}; `key` names the
 # cache file, so a changed sound gets a fresh envelope. Prints one line per
@@ -21,7 +21,7 @@ set -uo pipefail
 readonly BUCKETS=40
 readonly RATE=2000
 
-cache_dir="${1:?usage: omaboard-peaks <cache-dir> <json>}"
+cache_dir="${1:?usage: omahorn-peaks <cache-dir> <json>}"
 items="${2:-[]}"
 mkdir -p "$cache_dir/peaks"
 

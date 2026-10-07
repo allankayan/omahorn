@@ -1,31 +1,31 @@
 #!/bin/bash
 
-# Manages Omaboard's virtual microphone through pipewire-pulse.
+# Manages Omahorn's virtual microphone through pipewire-pulse.
 #
 # A single module-remap-source does all of it. Its capture stream
-# (input.omaboard_mic) records the physical microphone passively, so the
+# (input.omahorn_mic) records the physical microphone passively, so the
 # device stays closed until an app records the virtual one, and its playback
-# side is the "Omaboard Microphone" source those apps pick. Sounds are mixed
+# side is the "Omahorn Microphone" source those apps pick. Sounds are mixed
 # in by playing straight into the capture stream:
 #
-#   pw-play --target input.omaboard_mic sound.ogg
+#   pw-play --target input.omahorn_mic sound.ogg
 #
 # Usage:
-#   omaboard-audio status
-#   omaboard-audio ensure [<mic>|auto]    create the virtual mic when missing
-#   omaboard-audio set-mic <mic>|auto     move the passthrough to another mic
-#   omaboard-audio set-default on|off     make it the default input, or restore
-#   omaboard-audio teardown               remove the virtual mic
+#   omahorn-audio status
+#   omahorn-audio ensure [<mic>|auto]    create the virtual mic when missing
+#   omahorn-audio set-mic <mic>|auto     move the passthrough to another mic
+#   omahorn-audio set-default on|off     make it the default input, or restore
+#   omahorn-audio teardown               remove the virtual mic
 #
 # Every command prints one JSON status line on stdout. Failures keep the same
 # shape with "ok": false and a human-readable "error".
 
 set -uo pipefail
 
-readonly VMIC="omaboard_mic"
+readonly VMIC="omahorn_mic"
 readonly CAPTURE="input.$VMIC"
-readonly DESCRIPTION="Omaboard Microphone"
-readonly STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/omaboard"
+readonly DESCRIPTION="Omahorn Microphone"
+readonly STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/omahorn"
 readonly LAST_MIC_FILE="$STATE_DIR/last-mic"
 
 ERROR=""
@@ -280,7 +280,7 @@ cmd_teardown() {
 
 main() {
   if ! command -v pactl >/dev/null || ! command -v jq >/dev/null; then
-    printf '{"ok":false,"error":"omaboard needs pactl and jq","present":false,"sources":[],"listeners":[]}\n'
+    printf '{"ok":false,"error":"omahorn needs pactl and jq","present":false,"sources":[],"listeners":[]}\n'
     exit 1
   fi
   local command="${1:-status}"

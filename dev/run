@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Runs Omaboard in its own Quickshell instance, outside omarchy-shell.
+# Runs Omahorn in its own Quickshell instance, outside omarchy-shell.
 #
 #   dev/run           start (or restart) the dev instance
 #   dev/run stop      stop it
@@ -18,7 +18,7 @@
 set -euo pipefail
 
 project="$(cd "$(dirname "$0")/.." && pwd)"
-root="${XDG_RUNTIME_DIR:-/tmp}/omaboard-dev"
+root="${XDG_RUNTIME_DIR:-/tmp}/omahorn-dev"
 pidfile="$root/pid"
 logfile="$root/qs.log"
 omarchy_shell="${OMARCHY_PATH:-/usr/share/omarchy}/shell"
@@ -36,8 +36,8 @@ start() {
   mkdir -p "$root"
   ln -sfn "$omarchy_shell/Commons" "$root/Commons"
   ln -sfn "$omarchy_shell/Ui" "$root/Ui"
-  ln -sfn "$project" "$root/omaboard"
-  sed 's#import "\.\." as Omaboard#import "omaboard" as Omaboard#' "$project/dev/shell.qml" >"$root/shell.qml"
+  ln -sfn "$project" "$root/omahorn"
+  sed 's#import "\.\." as Omahorn#import "omahorn" as Omahorn#' "$project/dev/shell.qml" >"$root/shell.qml"
   setsid qs -p "$root/shell.qml" >"$logfile" 2>&1 </dev/null &
   echo $! >"$pidfile"
   echo "dev instance $(cat "$pidfile") — log: $logfile"
@@ -46,8 +46,8 @@ start() {
 case "${1:-start}" in
   start) start ;;
   stop) stop ;;
-  ipc) shift; exec qs -p "$root/shell.qml" ipc call omaboard "$@" ;;
-  key | type | state | screenName) exec qs -p "$root/shell.qml" ipc call omaboard-dev "$@" ;;
+  ipc) shift; exec qs -p "$root/shell.qml" ipc call omahorn "$@" ;;
+  key | type | state | screenName) exec qs -p "$root/shell.qml" ipc call omahorn-dev "$@" ;;
   log) exec tail -f "$logfile" ;;
   *) echo "usage: dev/run [start|stop|ipc <method> [args]|key <key>|type <text>|state|log]" >&2; exit 2 ;;
 esac

@@ -9,7 +9,7 @@ import "lib/Glyphs.js" as Glyphs
 // sounds yourself.
 BarWidget {
   id: root
-  moduleName: "omaboard"
+  moduleName: "omahorn"
 
   property var service: null
 
@@ -61,12 +61,12 @@ BarWidget {
     active: !root.micOk
     tooltipText: {
       var s = root.service
-      if (!s) return "Omaboard"
+      if (!s) return "Omahorn"
       if (s.isPlaying) return "Playing " + s.playing.map(function(p) { return p.name }).join(", ") + " · right-click to stop"
-      if (!root.micOk) return "Omaboard: " + (s.audio.error || "virtual microphone unavailable")
+      if (!root.micOk) return "Omahorn: " + (s.audio.error || "virtual microphone unavailable")
       var listeners = s.listeners.map(function(l) { return l.label })
       var hotkey = s.config.hotkeys.toggle ? " · " + s.config.hotkeys.toggle.label : ""
-      return "Omaboard · " + s.sounds.length + " sounds" + (listeners.length ? " · live in " + listeners.join(", ") : "") + hotkey
+      return "Omahorn · " + s.sounds.length + " sounds" + (listeners.length ? " · live in " + listeners.join(", ") : "") + hotkey
     }
 
     onPressed: function(b) {

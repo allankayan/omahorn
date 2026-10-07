@@ -1,4 +1,4 @@
-# Omaboard
+# Omahorn
 
 A soundboard for [Omarchy](https://omarchy.org). Press a key, and a sound plays
 into your microphone: whoever is on the other end of the call, stream or game
@@ -14,7 +14,7 @@ audio processing running in the background.
 - **Plays into your mic**, the way Soundux does: each sound goes straight into
   the apps recording a microphone (Discord, the browser, games), mixed with your
   voice. No virtual device, no setup, nothing changes in your audio settings.
-  Prefer a device? Switch to a virtual "Omaboard Microphone" instead.
+  Prefer a device? Switch to a virtual "Omahorn Microphone" instead.
 - **You hear it too**, on your own output and at your own volume.
 - **Global hotkeys** for any sound, bound through Hyprland, plus one to open the
   board and one to stop everything.
@@ -26,19 +26,19 @@ audio processing running in the background.
 
 ## Install
 
-Omaboard needs Omarchy 4 (the Quickshell-based shell). Everything else it uses
+Omahorn needs Omarchy 4 (the Quickshell-based shell). Everything else it uses
 ships with Omarchy: PipeWire with `pactl`, `pw-play`, `jq` and `ffmpeg`.
 
 ```bash
-omarchy plugin add https://github.com/<you>/omaboard.git --enable
+omarchy plugin add https://github.com/allankayan/omahorn.git --enable
 ```
 
 Or from a local checkout:
 
 ```bash
-ln -s ~/path/to/omaboard ~/.config/omarchy/plugins/omaboard
+ln -s ~/path/to/omahorn ~/.config/omarchy/plugins/omahorn
 omarchy-shell shell rescanPlugins
-omarchy plugin enable omaboard --before omarchy.audio
+omarchy plugin enable omahorn --before omarchy.audio
 ```
 
 A bullhorn appears in the bar. Put sounds in `~/Music/Soundboard` (created on
@@ -83,8 +83,8 @@ already uses are refused, with what uses them; a key another sound uses moves to
 this one. <kbd>Backspace</kbd> removes the hotkey.
 
 Hotkeys follow the physical key, so they keep working when you switch layouts.
-Omaboard registers them as Hyprland global shortcuts and keeps the binds in
-`~/.local/state/omarchy/toggles/hypr/omaboard.lua`, a folder Omarchy loads on
+Omahorn registers them as Hyprland global shortcuts and keeps the binds in
+`~/.local/state/omarchy/toggles/hypr/omahorn.lua`, a folder Omarchy loads on
 every Hyprland reload. Your own config files are never touched.
 
 | Default | Does |
@@ -96,27 +96,27 @@ Both can be changed or cleared in settings.
 
 ### From scripts
 
-The shell exposes Omaboard over IPC:
+The shell exposes Omahorn over IPC:
 
 ```bash
-omarchy-shell omaboard play "airhorn"      # best match by name, or an exact path
-omarchy-shell omaboard preview "airhorn"   # only for you
-omarchy-shell omaboard random Memes        # a random sound, optionally from one tab
-omarchy-shell omaboard stop
-omarchy-shell omaboard toggle
-omarchy-shell omaboard status              # JSON: mic, who is listening, what plays
+omarchy-shell omahorn play "airhorn"      # best match by name, or an exact path
+omarchy-shell omahorn preview "airhorn"   # only for you
+omarchy-shell omahorn random Memes        # a random sound, optionally from one tab
+omarchy-shell omahorn stop
+omarchy-shell omahorn toggle
+omarchy-shell omahorn status              # JSON: mic, who is listening, what plays
 ```
 
 To reach the board from the Omarchy menu as well, add a row to
 `~/.config/omarchy/extensions/omarchy-menu.jsonc`:
 
 ```jsonc
-"trigger.soundboard": {"icon":"󰃦","label":"Soundboard","action":"omarchy-shell omaboard toggle"},
+"trigger.soundboard": {"icon":"󰃦","label":"Soundboard","action":"omarchy-shell omahorn toggle"},
 ```
 
 ## How it works
 
-**Into apps** (the default). When you play a sound, Omaboard looks for the
+**Into apps** (the default). When you play a sound, Omahorn looks for the
 streams recording a microphone right now and links the sound into each of them;
 PipeWire mixes it with the microphone they already hear. The player is created
 unlinked, which holds it at its first sample until the links exist, so nothing
@@ -135,10 +135,10 @@ be recording when the sound starts. Apps that only open the microphone while you
 hold push-to-talk need you to hold it.
 
 **Virtual mic** (optional). A single `module-remap-source` in pipewire-pulse
-creates "Omaboard Microphone", which passes your real microphone through, and
+creates "Omahorn Microphone", which passes your real microphone through, and
 sounds are played into it. Apps that pick that device, or use the default input
 while it is the default, always hear sounds, push-to-talk or not. The passthrough
-follows your default input, and Omaboard never fights you over which device is
+follows your default input, and Omahorn never fights you over which device is
 the default. Switching back to *Into apps* removes the device as soon as no app
 is using it, so a call in progress carries on.
 
@@ -152,7 +152,7 @@ runs between sounds.
 <kbd>Ctrl</kbd>+<kbd>,</kbd> in the board covers everything: how sounds reach
 people and which apps get them, the volume of sounds for them and for you,
 overlap, hotkeys and folders. Changes save as you go to
-`~/.config/omaboard/config.json`, which you can also edit by hand; the shell
+`~/.config/omahorn/config.json`, which you can also edit by hand; the shell
 picks edits up live.
 
 ```json
@@ -184,17 +184,17 @@ picks edits up live.
 | Key | |
 | --- | --- |
 | `folders` | Where sounds come from. `recursive` folders turn their subfolders into tabs; `name` renames the tab |
-| `routing` | `inject`: straight into apps recording a microphone. `vmic`: through the Omaboard Microphone device |
+| `routing` | `inject`: straight into apps recording a microphone. `vmic`: through the Omahorn Microphone device |
 | `exclude` | Apps (name or binary) that never get sounds injected |
 | `mic` | Virtual mic: `auto` follows your default input; or a source name from `pactl list short sources` |
-| `defaultMic` | Virtual mic: make Omaboard Microphone the system default input |
+| `defaultMic` | Virtual mic: make Omahorn Microphone the system default input |
 | `monitor` | Hear sounds yourself |
 | `micVolume`, `monitorVolume` | 0–150%: what others hear, what you hear |
 | `overlap` | Let sounds play over each other instead of replacing the one playing |
 | `closeOnPlay` | Enter closes the board |
 | `sounds` | Per-sound favorite, volume and hotkey, keyed by full path |
 
-The file must stay valid JSON. If it stops parsing, Omaboard keeps running on
+The file must stay valid JSON. If it stops parsing, Omahorn keeps running on
 the last good settings (defaults, if it started that way) and writes nothing
 to the file until it parses again.
 
@@ -205,7 +205,7 @@ Suppression* (Krisp): it is built to remove anything that is not a voice, sounds
 included. Then check the header of the board: *Live · Discord* means the app is
 getting them. If it says *No app listening*, the app is not recording right now
 (push-to-talk released, call not joined) or is switched off in settings. With
-the virtual mic, set the app's input to *Default* or *Omaboard Microphone*.
+the virtual mic, set the app's input to *Default* or *Omahorn Microphone*.
 
 **They hear the sounds twice, or with an echo.** You are probably on speakers,
 and your microphone picks up the copy you hear. Use headphones, or turn off
@@ -215,37 +215,37 @@ and your microphone picks up the copy you hear. Use headphones, or turn off
 shell's log:
 
 ```bash
-pactl list short modules | grep omaboard_mic
-qs log -p "$OMARCHY_PATH/shell" | grep omaboard
+pactl list short modules | grep omahorn_mic
+qs log -p "$OMARCHY_PATH/shell" | grep omahorn
 ```
 
 **A hotkey does nothing.** `hyprctl globalshortcuts` should list
-`omaboard:play-…` for it, and `omarchy menu keybindings --print` the bind.
+`omahorn:play-…` for it, and `omarchy menu keybindings --print` the bind.
 
 ## Updating
 
 ```bash
-omarchy plugin update omaboard
+omarchy plugin update omahorn
 omarchy restart shell
 ```
 
 The shell keeps a plugin's service loaded across plugin reloads, so a new
-version of Omaboard only takes over after the shell restarts.
+version of Omahorn only takes over after the shell restarts.
 
 ## Uninstall
 
 ```bash
-omarchy plugin remove omaboard
+omarchy plugin remove omahorn
 ```
 
 This removes the hotkeys and, if you used it, the virtual microphone, restoring
-your default input. Settings stay in `~/.config/omaboard`; delete that folder and
-`~/.cache/omaboard` to remove everything.
+your default input. Settings stay in `~/.config/omahorn`; delete that folder and
+`~/.cache/omahorn` to remove everything.
 
 ## Development
 
 ```bash
-dev/run              # run Omaboard in its own Quickshell instance
+dev/run              # run Omahorn in its own Quickshell instance
 dev/run ipc toggle   # open the board there
 dev/run key ctrl+k   # simulate a key press on the board
 dev/run log          # follow its log
@@ -255,7 +255,7 @@ node --test tests/   # unit tests for the logic in lib/
 
 The dev instance opens the board on the monitor you are not using and without
 taking the keyboard, and leaves hotkeys off, so it never fights an installed
-Omaboard. `OMABOARD_DEV_FOCUS=1` and `OMABOARD_DEV_HOTKEYS=1` turn those back on.
+Omahorn. `OMAHORN_DEV_FOCUS=1` and `OMAHORN_DEV_HOTKEYS=1` turn those back on.
 
 The pieces:
 
@@ -266,11 +266,11 @@ The pieces:
 | `BarWidget.qml` | The bar button |
 | `components/` | Pads, waveform, settings page, hotkey recorder |
 | `lib/` | Pure logic: search, config, hotkey parsing (tested with node) |
-| `bin/omaboard-inject` | Finds the apps recording a microphone and plays into them |
-| `bin/omaboard-audio` | Creates and manages the virtual microphone |
-| `bin/omaboard-scan` | Lists the sound folders, with cached durations |
-| `bin/omaboard-peaks` | Computes and caches waveforms |
-| `bin/omaboard-decode` | Converts formats pw-play cannot read |
+| `bin/omahorn-inject` | Finds the apps recording a microphone and plays into them |
+| `bin/omahorn-audio` | Creates and manages the virtual microphone |
+| `bin/omahorn-scan` | Lists the sound folders, with cached durations |
+| `bin/omahorn-peaks` | Computes and caches waveforms |
+| `bin/omahorn-decode` | Converts formats pw-play cannot read |
 
 ## License
 

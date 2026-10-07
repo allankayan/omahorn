@@ -3,15 +3,15 @@
 # Converts a sound pw-play cannot read (m4a, aac, webm, wma, ...) into an
 # Opus file it can, so playback stays a single pw-play process.
 #
-#   omaboard-decode <input> <output.opus>
+#   omahorn-decode <input> <output.opus>
 #
 # Does nothing when <output> already exists. Writes through a temporary
 # file, so an interrupted conversion never leaves a truncated sound behind.
 
 set -euo pipefail
 
-input="${1:?usage: omaboard-decode <input> <output.opus>}"
-output="${2:?usage: omaboard-decode <input> <output.opus>}"
+input="${1:?usage: omahorn-decode <input> <output.opus>}"
+output="${2:?usage: omahorn-decode <input> <output.opus>}"
 
 [[ -s $output ]] && exit 0
 [[ -r $input ]] || { echo "cannot read $input" >&2; exit 1; }
