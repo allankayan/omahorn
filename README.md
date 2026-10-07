@@ -45,9 +45,9 @@ omarchy plugin add https://github.com/allankayan/omahorn.git --enable
 Or from a local checkout:
 
 ```bash
-ln -s ~/path/to/omahorn ~/.config/omarchy/plugins/omahorn
+ln -s ~/path/to/omahorn ~/.config/omarchy/plugins/io.github.allankayan.omahorn
 omarchy-shell shell rescanPlugins
-omarchy plugin enable omahorn --before omarchy.audio
+omarchy plugin enable io.github.allankayan.omahorn --before omarchy.audio
 ```
 
 A bullhorn appears in the bar. Put sounds in `~/Music/Soundboard` (created on
@@ -234,7 +234,7 @@ qs log -p "$OMARCHY_PATH/shell" | grep omahorn
 ## Updating
 
 ```bash
-omarchy plugin update omahorn
+omarchy plugin update io.github.allankayan.omahorn
 omarchy restart shell
 ```
 
@@ -244,7 +244,7 @@ version of Omahorn only takes over after the shell restarts.
 ## Uninstall
 
 ```bash
-omarchy plugin remove omahorn
+omarchy plugin remove io.github.allankayan.omahorn
 ```
 
 This removes the hotkeys and, if you used it, the virtual microphone, restoring

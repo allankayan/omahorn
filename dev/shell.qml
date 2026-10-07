@@ -30,7 +30,7 @@ ShellRoot {
   Omahorn.Service {
     id: service
     shell: hostShell
-    manifest: ({ id: "omahorn" })
+    manifest: ({ id: "io.github.allankayan.omahorn" })
     appId: "omahorn-dev"
     hotkeysEnabled: Quickshell.env("OMAHORN_DEV_HOTKEYS") === "1"
   }
@@ -49,7 +49,7 @@ ShellRoot {
     id: board
     shell: hostShell
     service: service
-    manifest: ({ id: "omahorn" })
+    manifest: ({ id: "io.github.allankayan.omahorn" })
     grabKeyboard: root.handsOn
     targetScreen: root.handsOn || Quickshell.env("OMAHORN_DEV_SCREEN") === "auto" ? null : root.quietScreen
   }

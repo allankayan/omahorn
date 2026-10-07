@@ -9,7 +9,7 @@ import "lib/Glyphs.js" as Glyphs
 // sounds yourself.
 BarWidget {
   id: root
-  moduleName: "omahorn"
+  moduleName: "io.github.allankayan.omahorn"
 
   property var service: null
 

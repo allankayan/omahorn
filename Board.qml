@@ -18,7 +18,7 @@ Item {
   property var manifest: null
   property var service: null
 
-  readonly property string pluginId: manifest && manifest.id ? String(manifest.id) : "omahorn"
+  readonly property string pluginId: manifest && manifest.id ? String(manifest.id) : "io.github.allankayan.omahorn"
 
   property bool opened: false
   // Hosts can open the board without taking the keyboard or pick its screen

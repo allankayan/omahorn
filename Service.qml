@@ -32,7 +32,7 @@ Item {
   property var manifest: null
   property var pluginRegistry: null
 
-  readonly property string pluginId: manifest && manifest.id ? String(manifest.id) : "omahorn"
+  readonly property string pluginId: manifest && manifest.id ? String(manifest.id) : "io.github.allankayan.omahorn"
   // Global shortcut namespace (binds read `global omahorn:<name>`). The dev
   // host runs without hotkeys so it never competes with the installed plugin.
   property string appId: "omahorn"
