@@ -164,9 +164,14 @@ Item {
   ].join("\n")
 
   Component.onDestruction: {
-    Quickshell.execDetached(["bash", "-c", cleanupScript, "omahorn-cleanup",
-      shellJsonPath, bindsPath, stateDir,
-      Hotkeys.evalCode(appId, [], appliedKeys), vmicName, pluginId])
+    log("shutting down")
+    try {
+      Quickshell.execDetached(["bash", "-c", cleanupScript, "omahorn-cleanup",
+        shellJsonPath, bindsPath, stateDir,
+        Hotkeys.evalCode(appId, [], appliedKeys), vmicName, pluginId].map(String))
+    } catch (e) {
+      warn("cleanup did not start: " + e)
+    }
   }
 
   // Directories first, then state, then the config that starts everything.
