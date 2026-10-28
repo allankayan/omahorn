@@ -145,14 +145,25 @@ hold push-to-talk need you to hold it.
 
 **Virtual mic** (optional). A single `module-remap-source` in pipewire-pulse
 creates "Omahorn Microphone", which passes your real microphone through, and
-sounds are played into it. Apps that pick that device, or use the default input
-while it is the default, always hear sounds, push-to-talk or not. The passthrough
-follows your default input, and Omahorn never fights you over which device is
-the default. Switching back to *Into apps* removes the device as soon as no app
+sounds are played into it. Apps that pick that device always hear sounds,
+push-to-talk or not. *Use as default microphone* in settings (off unless you
+turn it on) makes it the system default input, so apps on the default input
+hear them too. The passthrough follows your default input, and Omahorn never
+fights you over which device is the default. Switching back to *Into apps* removes the device as soon as no app
 is using it, so a call in progress carries on.
 
 Either way each sound is a short-lived `pw-play` per destination, and nothing
 runs between sounds.
+
+**Privacy.** Process arguments are visible to every user on the machine, so
+Omahorn keeps your sounds out of them: the helpers in `bin/` take paths and
+names on stdin, `pw-play`, `ffmpeg` and `ffprobe` read each sound on their
+stdin, and Hyprland loads the hotkeys from their file by path. The one path
+that does show is a folder you open with <kbd>Ctrl</kbd>+<kbd>O</kbd>, which your
+file manager is started with. Omahorn's own
+folders (`~/.config/omahorn`, `~/.cache/omahorn`, `~/.local/state/omahorn`)
+and the hotkeys file are readable only by you. Notifications, whose text also
+passes through arguments, never name a sound.
 
 ## Settings
 
@@ -174,7 +185,7 @@ picks edits up live.
   "routing": "inject",
   "exclude": ["obs"],
   "mic": "auto",
-  "defaultMic": true,
+  "defaultMic": false,
   "monitor": true,
   "micVolume": 80,
   "monitorVolume": 60,
@@ -196,7 +207,7 @@ picks edits up live.
 | `routing` | `inject`: straight into apps recording a microphone. `vmic`: through the Omahorn Microphone device |
 | `exclude` | Apps (name or binary) that never get sounds injected |
 | `mic` | Virtual mic: `auto` follows your default input; or a source name from `pactl list short sources` |
-| `defaultMic` | Virtual mic: make Omahorn Microphone the system default input |
+| `defaultMic` | Virtual mic: make Omahorn Microphone the system default input (off by default) |
 | `monitor` | Hear sounds yourself |
 | `micVolume`, `monitorVolume` | 0–150%: what others hear, what you hear |
 | `overlap` | Let sounds play over each other instead of replacing the one playing |
@@ -248,8 +259,13 @@ omarchy plugin remove io.github.allankayan.omahorn
 ```
 
 This removes the hotkeys and, if you used it, the virtual microphone, restoring
-your default input. Settings stay in `~/.config/omahorn`; delete that folder and
-`~/.cache/omahorn` to remove everything.
+your default input. That cleanup runs in the shell, so remove the plugin while
+`omarchy-shell` is running; if it was not, delete
+`~/.local/state/omarchy/toggles/hypr/omahorn.lua` yourself.
+
+Settings stay in `~/.config/omahorn`; delete that folder, `~/.cache/omahorn`
+and `~/.local/state/omahorn` to remove everything. Your sound folders stay as
+they are, including `~/Music/Soundboard`, which Omahorn created on first run.
 
 ## Development
 
@@ -275,11 +291,13 @@ The pieces:
 | `BarWidget.qml` | The bar button |
 | `components/` | Pads, waveform, settings page, hotkey recorder |
 | `lib/` | Pure logic: search, config, hotkey parsing (tested with node) |
+| `bin/omahorn-play` | Plays one copy of a sound, for you or into the virtual microphone |
 | `bin/omahorn-inject` | Finds the apps recording a microphone and plays into them |
 | `bin/omahorn-audio` | Creates and manages the virtual microphone |
 | `bin/omahorn-scan` | Lists the sound folders, with cached durations |
 | `bin/omahorn-peaks` | Computes and caches waveforms |
 | `bin/omahorn-decode` | Converts formats pw-play cannot read |
+| `bin/omahorn-binds` | Writes the hotkeys file and has Hyprland load it |
 
 ## License
 

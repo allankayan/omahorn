@@ -21,6 +21,7 @@
 # shape with "ok": false and a human-readable "error".
 
 set -uo pipefail
+umask 077
 
 readonly VMIC="omahorn_mic"
 readonly CAPTURE="input.$VMIC"
@@ -71,11 +72,14 @@ source_name_by_index() {
   pactl_json list sources | jq -r --argjson index "$index" '.[] | select(.index == $index) | .name' | head -n1
 }
 
+# Rename into place, so a symlink or FIFO at that path is replaced, not followed.
 remember_mic() {
-  local mic="$1"
+  local mic="$1" tmp
   [[ -n $mic && $mic != "$VMIC" ]] || return 0
-  mkdir -p "$STATE_DIR"
-  printf '%s\n' "$mic" >"$LAST_MIC_FILE"
+  [[ $(remembered_mic) == "$mic" ]] && return 0
+  mkdir -p "$STATE_DIR" || return 0
+  tmp=$(mktemp "$STATE_DIR/last-mic.XXXXXX") || return 0
+  printf '%s\n' "$mic" >"$tmp" && mv -f "$tmp" "$LAST_MIC_FILE" || rm -f "$tmp"
 }
 
 remembered_mic() {
@@ -107,6 +111,18 @@ pick_mic() {
     return
   fi
   jq -r '([.[] | select(.physical)] + .)[0].name // empty' <<<"$sources"
+}
+
+# The mic being passed through, else the remembered one if it still exists.
+restore_target() {
+  local mic remembered
+  mic=$(current_mic)
+  if [[ -n $mic ]]; then
+    echo "$mic"
+    return
+  fi
+  remembered=$(remembered_mic)
+  is_candidate "$remembered" "$(candidate_sources)" && echo "$remembered"
 }
 
 current_mic() {
@@ -252,8 +268,7 @@ cmd_set_default() {
       fi
       ;;
     off)
-      mic=$(current_mic)
-      [[ -n $mic ]] || mic=$(remembered_mic)
+      mic=$(restore_target)
       if [[ -n $mic ]]; then
         output=$(pactl set-default-source "$mic" 2>&1) || ERROR="Could not restore $mic as the default input: $output"
       fi
@@ -267,8 +282,7 @@ cmd_set_default() {
 
 cmd_teardown() {
   local module mic
-  mic=$(current_mic)
-  [[ -n $mic ]] || mic=$(remembered_mic)
+  mic=$(restore_target)
   if [[ $(default_source) == "$VMIC" && -n $mic ]]; then
     pactl set-default-source "$mic" >/dev/null 2>&1 || true
   fi

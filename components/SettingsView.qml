@@ -63,7 +63,7 @@ Item {
       if (apps.length === 0) list.push({ type: "info", text: "Apps show up here while they record a microphone: join a call and its app appears. Each one gets your sounds unless you switch it off." })
     } else {
       list.push(
-        { type: "toggle", key: "defaultMic", label: "Use as default microphone", description: "Apps that record the default input hear your sounds, no per-app setup" },
+        { type: "toggle", key: "defaultMic", label: "Use as default microphone", description: "Makes it your system's default input, so apps on the default input hear your sounds with no per-app setup" },
         { type: "mic", label: "Your microphone", description: "Mixed into Omahorn Microphone along with the sounds" },
         { type: "listeners" })
     }

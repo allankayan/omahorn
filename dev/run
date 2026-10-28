@@ -18,7 +18,8 @@
 set -euo pipefail
 
 project="$(cd "$(dirname "$0")/.." && pwd)"
-root="${XDG_RUNTIME_DIR:-/tmp}/omahorn-dev"
+# Owner-only, unlike /tmp, where anyone could plant the pid file this kills.
+root="${XDG_RUNTIME_DIR:?XDG_RUNTIME_DIR is not set}/omahorn-dev"
 pidfile="$root/pid"
 logfile="$root/qs.log"
 omarchy_shell="${OMARCHY_PATH:-/usr/share/omarchy}/shell"

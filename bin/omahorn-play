@@ -1,0 +1,25 @@
+#!/bin/bash
+
+# Plays one sound with pw-play, for the copy you hear and for the virtual
+# microphone. Takes the details as JSON on stdin:
+#
+#   {"file": "/path/sound.ogg", "volume": "0.8000", "target": "", "props": "{ ... }"}
+#
+# `target` is a node name or empty for the default output; `props` the
+# stream properties. Path and name go via stdin and PIPEWIRE_PROPS, not argv.
+
+set -uo pipefail
+
+input=$(cat)
+file=$(jq -r '.file // ""' <<<"$input" 2>/dev/null)
+volume=$(jq -r '.volume // "1"' <<<"$input" 2>/dev/null)
+target=$(jq -r '.target // ""' <<<"$input" 2>/dev/null)
+props=$(jq -r '.props // "{}"' <<<"$input" 2>/dev/null)
+
+[[ -n $file ]] || { echo "omahorn-play: expected {\"file\": ...} on stdin" >&2; exit 2; }
+[[ -e $file ]] || { echo "No such file or directory" >&2; exit 1; }
+[[ -f $file && -r $file ]] || { echo "Cannot read the sound file" >&2; exit 1; }
+
+args=(--volume "$volume")
+[[ -n $target ]] && args+=(--target "$target")
+PIPEWIRE_PROPS="$props" exec pw-play "${args[@]}" /dev/stdin <"$file"

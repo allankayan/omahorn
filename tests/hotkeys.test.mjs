@@ -95,13 +95,14 @@ test("bindsFile drops invalid entries and duplicate keys", () => {
   assert.ok(!lua.includes("os.exit"))
 })
 
-test("evalCode unbinds only keys Omahorn bound before", () => {
-  const code = H.evalCode("omahorn", [{ keys: "ALT + code:11", name: "stop", description: "Stop" }], ["SUPER + CTRL + M", "bogus\"key"])
-  const lines = code.split("\n")
-  assert.deepEqual(lines, [
+test("evalCode unbinds only keys Omahorn bound before, then loads the binds file", () => {
+  const code = H.evalCode(["SUPER + CTRL + M", "bogus\"key", "SUPER + CTRL + M"], "/home/u/.local/state/omarchy/toggles/hypr/omahorn.lua")
+  assert.deepEqual(code.split("\n"), [
     'pcall(hl.unbind, "SUPER + CTRL + M")',
-    'pcall(hl.bind, "ALT + code:11", hl.dsp.global("omahorn:stop"), { description = "Stop" })'
+    'dofile("/home/u/.local/state/omarchy/toggles/hypr/omahorn.lua")'
   ])
+  assert.equal(H.evalCode(["ALT + code:11"], ""), 'pcall(hl.unbind, "ALT + code:11")')
+  assert.equal(H.evalCode([], ""), "")
 })
 
 const BINDS_TEXT = `bindd
@@ -142,14 +143,6 @@ test("parses hyprctl binds text, keeping keycodes", () => {
   assert.equal(binds[1].key, "code:10")
   assert.equal(binds[1].combo, "SUPER + ALT + code:10")
   assert.equal(binds[2].combo, "SUPER + CTRL + M")
-})
-
-test("reads the keys of both generated file formats", () => {
-  const oldFormat = 'hl.bind("SUPER + CTRL + M", hl.dsp.global("omahorn:toggle"), { description = "x" })'
-  const newFormat = 'pcall(hl.bind, "CTRL + ALT + code:56", hl.dsp.global("omahorn:play-s1"), { description = "y" })'
-  assert.deepEqual(H.keysInBindsFile(oldFormat + "\n" + newFormat + "\n" + newFormat), ["SUPER + CTRL + M", "CTRL + ALT + code:56"])
-  assert.deepEqual(H.keysInBindsFile(H.bindsFile("omahorn", [{ keys: "SUPER + F13", name: "stop", description: "z" }])), ["SUPER + F13"])
-  assert.deepEqual(H.keysInBindsFile('hl.bind("rm -rf", x)'), [])
 })
 
 test("finds conflicts by keycode or by key name, ignoring our own", () => {

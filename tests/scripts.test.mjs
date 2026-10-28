@@ -1,7 +1,7 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 import { execFileSync, spawnSync } from "node:child_process"
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync } from "node:fs"
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, statSync, lstatSync, symlinkSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, dirname } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -47,8 +47,26 @@ function fixture() {
 }
 
 function scan(folders, env) {
-  const out = execFileSync(join(root, "bin/omahorn-scan"), [JSON.stringify(folders)], { env, encoding: "utf8" })
+  const out = execFileSync(join(root, "bin/omahorn-scan"), [], { env, input: JSON.stringify(folders), encoding: "utf8" })
   return out.trim().split("\n").filter(Boolean).map(line => JSON.parse(line))
+}
+
+// PATH wrappers that log argv; `fake` also logs stdin size and PIPEWIRE_PROPS.
+function argvSpy(dir, { real = [], fake = [] }) {
+  const bin = join(dir, "spy-bin")
+  const log = join(dir, "argv.log")
+  mkdirSync(bin, { recursive: true })
+  for (const name of real) {
+    const path = spawnSync("sh", ["-c", `command -v ${name}`], { encoding: "utf8" }).stdout.trim()
+    writeFileSync(join(bin, name), `#!/bin/bash\nprintf '%s\\n' "${name} $*" >>'${log}'\nexec '${path}' "$@"\n`, { mode: 0o755 })
+  }
+  for (const name of fake) {
+    writeFileSync(join(bin, name), `#!/bin/bash\nprintf '%s stdin=%s props=%s\\n' "${name} $*" "$(wc -c)" "\${PIPEWIRE_PROPS:-}" >>'${log}'\n`, { mode: 0o755 })
+  }
+  return {
+    env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+    log: () => existsSync(log) ? readFileSync(log, "utf8") : ""
+  }
 }
 
 test("scan: recursive folders turn first-level subfolders into categories", () => {
@@ -90,8 +108,18 @@ test("scan: a folder under a hidden directory still lists its sounds", () => {
 })
 
 test("scan: rejects input that is not a folder list", () => {
-  const result = spawnSync(join(root, "bin/omahorn-scan"), ["{}"], { encoding: "utf8" })
+  const result = spawnSync(join(root, "bin/omahorn-scan"), [], { input: "{}", encoding: "utf8" })
   assert.equal(result.status, 2)
+})
+
+test("scan: no folder or sound path reaches a process argument", { skip: !hasFfprobe && "ffprobe not installed" }, () => {
+  const { dir, lib, env } = fixture()
+  const spy = argvSpy(dir, { real: ["find", "ffprobe", "jq"] })
+  const sounds = scan([{ path: lib, recursive: true }], { ...spy.env, XDG_CACHE_HOME: env.XDG_CACHE_HOME })
+  assert.equal(sounds.length, 4)
+  assert.ok(sounds.every(s => s.duration > 0))
+  assert.match(spy.log(), /ffprobe .*file:\/dev\/stdin/)
+  assert.ok(!spy.log().includes(lib), spy.log())
 })
 
 test("scan: durations come from ffprobe and are cached", { skip: !hasFfprobe && "ffprobe not installed" }, () => {
@@ -110,7 +138,8 @@ test("peaks: loudness envelope follows the sound and is cached", { skip: !hasFfp
   wav(file, 2, t => t / 2)
   const cache = join(dir, "peaks-cache")
   const items = JSON.stringify([{ id: "s1", path: file, duration: 2, key: "k1" }, { id: "gone", path: "/nope.wav", duration: 1, key: "k2" }])
-  const run = () => execFileSync(join(root, "bin/omahorn-peaks"), [cache, items], { encoding: "utf8" }).trim().split("\n").map(l => JSON.parse(l))
+  const spy = argvSpy(dir, { real: ["ffmpeg", "jq"] })
+  const run = () => execFileSync(join(root, "bin/omahorn-peaks"), [cache], { env: spy.env, input: items, encoding: "utf8" }).trim().split("\n").map(l => JSON.parse(l))
   const out = run()
   assert.equal(out.length, 1)
   assert.equal(out[0].id, "s1")
@@ -119,5 +148,62 @@ test("peaks: loudness envelope follows the sound and is cached", { skip: !hasFfp
   assert.equal(Math.max(...out[0].peaks), 100)
   assert.ok(out[0].peaks[39] > 90, "ends loud")
   assert.ok(existsSync(join(cache, "peaks", "k1.txt")))
+  assert.equal(statSync(join(cache, "peaks", "k1.txt")).mode & 0o777, 0o600)
   assert.deepEqual(run(), out)
+  assert.ok(spy.log().includes("ffmpeg"))
+  assert.ok(!spy.log().includes(file), spy.log())
+})
+
+test("decode: converts from stdin into a copy only you can read", { skip: !hasFfprobe && "ffmpeg not installed" }, () => {
+  const { dir, lib } = fixture()
+  const input = join(lib, "Memes", "bruh.wav")
+  const output = join(dir, "cache", "decoded", "abc.opus")
+  const spy = argvSpy(dir, { real: ["ffmpeg"] })
+  execFileSync(join(root, "bin/omahorn-decode"), [], { env: spy.env, input: JSON.stringify({ input, output }) })
+  assert.ok(statSync(output).size > 0)
+  assert.equal(statSync(output).mode & 0o777, 0o600)
+  assert.ok(!spy.log().includes(input), spy.log())
+})
+
+test("play: pw-play gets the sound on stdin and its name in the environment", () => {
+  const { dir, lib } = fixture()
+  const file = join(lib, "Memes", "bruh.wav")
+  const spy = argvSpy(dir, { fake: ["pw-play"] })
+  const props = '{ node.name = "omahorn.monitor" media.name = "Bruh" }'
+  execFileSync(join(root, "bin/omahorn-play"), [], { env: spy.env, input: JSON.stringify({ file, volume: "0.5000", target: "input.omahorn_mic", props }) })
+  const line = spy.log().trim()
+  assert.ok(line.startsWith("pw-play --volume 0.5000 --target input.omahorn_mic /dev/stdin stdin=" + statSync(file).size + " "), line)
+  assert.ok(line.endsWith("props=" + props), line)
+  assert.ok(!line.includes(file))
+})
+
+test("play: a missing sound fails before pw-play starts", () => {
+  const { dir } = fixture()
+  const spy = argvSpy(dir, { fake: ["pw-play"] })
+  const result = spawnSync(join(root, "bin/omahorn-play"), [], { env: spy.env, input: JSON.stringify({ file: join(dir, "gone.wav") }), encoding: "utf8" })
+  assert.equal(result.status, 1)
+  assert.match(result.stderr, /No such file or directory/)
+  assert.equal(spy.log(), "")
+})
+
+test("binds: replaces whatever is at the path with a private file and loads it by path", () => {
+  const { dir } = fixture()
+  const spy = argvSpy(dir, { fake: ["hyprctl"] })
+  const path = join(dir, "toggles", "hypr", "omahorn.lua")
+  const other = join(dir, "other.txt")
+  writeFileSync(other, "keep")
+  mkdirSync(dirname(path), { recursive: true })
+  symlinkSync(other, path)
+  const content = 'pcall(hl.bind, "SUPER + F13", hl.dsp.global("omahorn:play-s1"), { description = "Omahorn: play Secret" })\n'
+  const code = 'pcall(hl.unbind, "SUPER + F13")\ndofile("' + path + '")'
+  const binds = request => execFileSync(join(root, "bin/omahorn-binds"), [], { env: spy.env, input: JSON.stringify(request) })
+  binds({ path, content, code })
+  assert.equal(readFileSync(other, "utf8"), "keep")
+  assert.ok(!lstatSync(path).isSymbolicLink())
+  assert.equal(readFileSync(path, "utf8"), content)
+  assert.equal(statSync(path).mode & 0o777, 0o600)
+  assert.ok(spy.log().startsWith("hyprctl eval " + code.split("\n")[0]))
+  assert.ok(!spy.log().includes("Secret"))
+  binds({ path, content: null, code: "" })
+  assert.equal(readFileSync(path, "utf8"), content)
 })

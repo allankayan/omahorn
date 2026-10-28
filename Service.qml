@@ -92,7 +92,6 @@ Item {
   property var hyprBinds: []
   property var appliedKeys: []
   property bool hotkeysSuspended: false
-  property string lastBindsFile: ""
 
   property bool boardOpen: false
   // Where the board was left, so reopening it lands on the same tab and pad.
@@ -113,7 +112,8 @@ Item {
   function warn(message) { console.warn("omahorn: " + message) }
 
   // Inline in the board when it is open, a desktop notification otherwise.
-  function report(text, kind) {
+  // Notifications travel in process arguments, so `publicText` omits sound names.
+  function report(text, kind, publicText) {
     var level = kind || "error"
     if (level === "error") warn(text)
     else log(text)
@@ -121,7 +121,7 @@ Item {
     noticeKind = level
     noticeTimer.restart()
     noticePosted(text, level)
-    if (!boardOpen && level === "error") notify("Omahorn", text)
+    if (!boardOpen && level === "error") notify("Omahorn", publicText || text)
   }
 
   function notify(title, body) {
@@ -141,7 +141,9 @@ Item {
   Component.onCompleted: {
     log("starting from " + pluginDir)
     if (vmicNodePresent) vmicSeen = true
-    initProc.exec(["mkdir", "-p", configDir, stateDir, cacheDir + "/decoded"])
+    // Owner-only: these folders list your sounds and hold copies of them.
+    initProc.exec(["bash", "-c", 'umask 077 && mkdir -p -- "$@" && chmod 700 -- "$@"', "omahorn-init",
+      configDir, stateDir, cacheDir, cacheDir + "/decoded"])
   }
 
   // Runs detached once the shell is done with this object. A plugin reload or
@@ -157,7 +159,7 @@ Item {
     "rm -f \"$binds\" \"$state_dir/state.json\"",
     "[[ -n $unbind ]] && hyprctl eval \"$unbind\" >/dev/null 2>&1",
     "if [[ $(pactl get-default-source 2>/dev/null) == \"$vmic\" ]]; then",
-    "  mic=$(head -n1 \"$state_dir/last-mic\" 2>/dev/null)",
+    "  mic=$([[ -f $state_dir/last-mic ]] && head -n1 \"$state_dir/last-mic\")",
     "  [[ -n $mic ]] && pactl set-default-source \"$mic\"",
     "fi",
     "pactl list short modules 2>/dev/null | awk -F '\\t' -v vmic=\"$vmic\" '$2 == \"module-remap-source\" && index(\" \" $3 \" \", \" source_name=\" vmic \" \") { print $1 }' | xargs -r -n1 pactl unload-module"
@@ -168,7 +170,7 @@ Item {
     try {
       Quickshell.execDetached(["bash", "-c", cleanupScript, "omahorn-cleanup",
         shellJsonPath, bindsPath, stateDir,
-        Hotkeys.evalCode(appId, [], appliedKeys), vmicName, pluginId].map(String))
+        Hotkeys.evalCode(appliedKeys, ""), vmicName, pluginId].map(String))
     } catch (e) {
       warn("cleanup did not start: " + e)
     }
@@ -353,7 +355,7 @@ Item {
       return
     }
     scanning = true
-    scanProc.run([pluginDir + "/bin/omahorn-scan", JSON.stringify(config.folders)])
+    scanProc.run([pluginDir + "/bin/omahorn-scan"], null, JSON.stringify(config.folders))
   }
 
   // Cheap enough to run on every open: only new files get probed.
@@ -414,18 +416,23 @@ Item {
       peaksQueued = true
       return
     }
-    // One argv string holds at most 128 KiB; a few hundred sounds per run
-    // stays well under it, and the rest follow when this batch exits.
-    var batch = items.slice(0, 300)
-    if (items.length > batch.length) peaksQueued = true
     peaksProc.keys = {}
-    for (var j = 0; j < batch.length; j++) peaksProc.keys[batch[j].id] = batch[j].key
-    peaksProc.exec([pluginDir + "/bin/omahorn-peaks", cacheDir, JSON.stringify(batch)])
+    for (var j = 0; j < items.length; j++) peaksProc.keys[items[j].id] = items[j].key
+    peaksProc.input = JSON.stringify(items)
+    peaksProc.stdinEnabled = true
+    peaksProc.exec([pluginDir + "/bin/omahorn-peaks", cacheDir])
   }
 
   Process {
     id: peaksProc
     property var keys: ({})
+    // The sounds go in on stdin, so their paths stay out of the process list.
+    property string input: ""
+    onStarted: {
+      write(input)
+      input = ""
+      stdinEnabled = false
+    }
     stdout: SplitParser {
       onRead: function(line) {
         var item
@@ -491,7 +498,7 @@ Item {
     if (decodeJob || decodeQueue.length === 0) return
     decodeJob = decodeQueue[0]
     decodeQueue = decodeQueue.slice(1)
-    decodeProc.run([pluginDir + "/bin/omahorn-decode", decodeJob.source, decodeJob.target], decodeJob)
+    decodeProc.run([pluginDir + "/bin/omahorn-decode"], decodeJob, JSON.stringify({ input: decodeJob.source, output: decodeJob.target }))
   }
 
   Command {
@@ -506,7 +513,7 @@ Item {
         if (job.playAfter) root.play(job.playAfter.id, job.playAfter.options)
       } else {
         root.warn("decode failed for " + job.source + ": " + errorOutput.trim())
-        if (job.playAfter) root.report("Could not convert " + job.source.split("/").pop() + " for playback")
+        if (job.playAfter) root.report("Could not convert " + job.source.split("/").pop() + " for playback", "error", "Could not convert a sound for playback")
       }
       Qt.callLater(root.runNextDecode)
     }
@@ -543,11 +550,13 @@ Item {
     return "{ " + props.join(" ") + " }"
   }
 
-  function playCommand(file, target, amplitude, role, sound) {
-    var cmd = ["pw-play", "--volume", amplitude.toFixed(4), "-P", streamProps(role, sound)]
-    if (target) cmd.push("--target", target)
-    cmd.push(file)
-    return cmd
+  // Sent on stdin: process arguments are readable by every local user.
+  function playPart(file, target, amplitude, role, sound) {
+    return {
+      role: role,
+      command: [pluginDir + "/bin/omahorn-play"],
+      input: JSON.stringify({ file: file, target: target, volume: amplitude.toFixed(4), props: streamProps(role, sound) })
+    }
   }
 
   // options: { preview: bool } — a preview plays only for you.
@@ -592,9 +601,14 @@ Item {
     var gain = sound.volume || 100
     var micAmplitude = Library.amplitude(config.micVolume * gain / 100)
     var parts = []
-    if (toMic && injecting) parts.push({ role: "mic", command: [pluginDir + "/bin/omahorn-inject", "play", file, micAmplitude.toFixed(4), sound.name, JSON.stringify(config.exclude)] })
-    else if (toMic) parts.push({ role: "mic", command: playCommand(file, captureName, micAmplitude, "mic", sound) })
-    if (toMonitor) parts.push({ role: "monitor", command: playCommand(file, "", Library.amplitude(config.monitorVolume * gain / 100), "monitor", sound) })
+    if (toMic && injecting) {
+      parts.push({
+        role: "mic",
+        command: [pluginDir + "/bin/omahorn-inject", "play"],
+        input: JSON.stringify({ file: file, volume: micAmplitude.toFixed(4), name: sound.name, exclude: config.exclude })
+      })
+    } else if (toMic) parts.push(playPart(file, captureName, micAmplitude, "mic", sound))
+    if (toMonitor) parts.push(playPart(file, "", Library.amplitude(config.monitorVolume * gain / 100), "monitor", sound))
     if (parts.length === 0) return false
 
     voiceSerial++
@@ -618,7 +632,7 @@ Item {
       var proc = processComponent.createObject(root, { voiceKey: voiceKey, role: parts[p].role })
       if (!proc) continue
       voice.procs.push(proc)
-      proc.run(parts[p].command)
+      proc.run(parts[p].command, undefined, parts[p].input)
     }
     var nextVoices = {}
     for (var vk in voices) nextVoices[vk] = voices[vk]
@@ -702,7 +716,7 @@ Item {
           var retryOptions = { preview: voice.preview, retried: true }
           Qt.callLater(function() { root.play(voice.soundId, retryOptions) })
         } else if (voice.failure) {
-          report("Could not play " + voice.name + ": " + voice.failure)
+          report("Could not play " + voice.name + ": " + voice.failure, "error", "Could not play a sound; open the soundboard for details")
           if (!injecting && /Microphone/.test(voice.failure)) audioCommand(["ensure", config.mic])
         }
       }
@@ -861,7 +875,7 @@ Item {
 
   function refreshTargets() {
     if (!injecting || targetsProc.running) return
-    targetsProc.run([pluginDir + "/bin/omahorn-inject", "list", JSON.stringify(config.exclude)])
+    targetsProc.run([pluginDir + "/bin/omahorn-inject", "list"], null, JSON.stringify(config.exclude))
   }
 
   Command {
@@ -988,7 +1002,7 @@ Item {
     else if (entry.action === "play") {
       var s = soundForPath(entry.path)
       if (s) play(s.id, {})
-      else report("Hotkey " + entry.label + ": " + Library.prettyName(String(entry.path).split("/").pop()) + " is missing")
+      else report("Hotkey " + entry.label + ": " + Library.prettyName(String(entry.path).split("/").pop()) + " is missing", "error", "Hotkey " + entry.label + ": that sound is missing")
     }
   }
 
@@ -1004,18 +1018,17 @@ Item {
     }
   }
 
-  // Keys an earlier instance bound (it may have died without cleaning up)
-  // come from the file it left, so the first sync can release them.
+  // Keys an earlier instance bound and may not have released.
   property bool bindsAdopted: false
 
   function adoptPreviousBinds() {
     if (bindsAdopted) return
     bindsAdopted = true
-    var text = ""
-    try { text = bindsFile.text() } catch (e) { text = "" }
     var keys = appliedKeys.slice()
-    var fromFile = Hotkeys.keysInBindsFile(text)
-    for (var i = 0; i < fromFile.length; i++) if (keys.indexOf(fromFile[i]) === -1) keys.push(fromFile[i])
+    var previous = Array.isArray(appState.boundKeys) ? appState.boundKeys : []
+    for (var i = 0; i < previous.length; i++) {
+      if (Hotkeys.isValidKeys(previous[i]) && keys.indexOf(previous[i]) === -1) keys.push(previous[i])
+    }
     appliedKeys = keys
   }
 
@@ -1066,37 +1079,30 @@ Item {
         blockedHotkeys = blocked
         if (blocked.length > 0) {
           report(blocked.map(function(b) { return b.label + " is taken by " + b.by }).join("; ")
-            + ". Pick other keys in Omahorn's settings.")
+            + ". Pick other keys in Omahorn's settings.", "error",
+            blocked.map(function(b) { return b.label }).join(", ") + (blocked.length > 1 ? " are" : " is")
+            + " taken by other Hyprland binds. Pick other keys in Omahorn's settings.")
         }
       }
     }
-    if (!hotkeysSuspended) {
-      var content = Hotkeys.bindsFile(appId, bindings)
-      if (content !== lastBindsFile) {
-        lastBindsFile = content
-        bindsFile.setText(content)
-      }
+    // While recording, keep the file and unbind only in the running compositor.
+    var request = {
+      path: bindsPath,
+      content: hotkeysSuspended ? null : Hotkeys.bindsFile(appId, bindings),
+      code: Hotkeys.evalCode(appliedKeys.concat(ownBindsInHyprland()), hotkeysSuspended ? "" : bindsPath)
     }
-    var code = Hotkeys.evalCode(appId, bindings, appliedKeys.concat(ownBindsInHyprland()))
     appliedKeys = bindings.map(function(b) { return b.keys })
-    if (code) hyprEval(code)
+    if (!hotkeysSuspended && JSON.stringify(appState.boundKeys || []) !== JSON.stringify(appliedKeys)) saveState({ boundKeys: appliedKeys })
+    if (request.content !== null || request.code) applyToHyprland(request)
     log("hotkeys: " + bindings.length + " bound" + (blockedHotkeys.length ? ", " + blockedHotkeys.length + " taken by Hyprland binds" : "")
       + (hotkeysSuspended ? " (suspended while recording)" : ""))
   }
 
-  FileView {
-    id: bindsFile
-    path: root.bindsPath
-    printErrors: false
-    atomicWrites: true
-    // Read once, at the first sync, and it is a few lines: blocking is fine.
-    blockLoading: true
-  }
-
+  // bin/omahorn-binds requests, run in order: each builds on the last one's keys.
   property var evalQueue: []
 
-  function hyprEval(code) {
-    evalQueue = evalQueue.concat([code])
+  function applyToHyprland(request) {
+    evalQueue = evalQueue.concat([request])
     runNextEval()
   }
 
@@ -1105,15 +1111,15 @@ Item {
   function runNextEval() {
     if (evalBusy || evalQueue.length === 0) return
     evalBusy = true
-    var code = evalQueue[0]
+    var request = evalQueue[0]
     evalQueue = evalQueue.slice(1)
-    evalProc.run(["hyprctl", "eval", code])
+    evalProc.run([pluginDir + "/bin/omahorn-binds"], null, JSON.stringify(request))
   }
 
   Command {
     id: evalProc
     onFinished: function(exitCode, output, errorOutput) {
-      if (exitCode !== 0) root.warn("hyprctl eval failed (" + exitCode + "): " + (output + errorOutput).trim())
+      if (exitCode !== 0) root.warn("applying hotkeys failed (" + exitCode + "): " + (output + errorOutput).trim())
       root.evalBusy = false
       Qt.callLater(root.runNextEval)
     }

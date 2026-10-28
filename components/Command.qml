@@ -7,12 +7,15 @@ import Quickshell.Io
 // the result back for more than a couple of seconds, and a program that
 // never starts (missing, not executable) finishes with exit code -1 instead
 // of leaving its caller waiting.
+//
+// stdin closes after `input`: Quickshell would leave it open and a reader would hang.
 Process {
   id: command
 
   property string output: ""
   property string errorOutput: ""
   property var context: null
+  property var _input: null
 
   property bool _started: false
   property bool _exited: false
@@ -23,7 +26,7 @@ Process {
 
   signal finished(int exitCode, string output, string errorOutput, var context)
 
-  function run(argv, ctx) {
+  function run(argv, ctx, input) {
     _started = false
     _exited = false
     _outDone = false
@@ -32,6 +35,8 @@ Process {
     output = ""
     errorOutput = ""
     context = ctx === undefined ? null : ctx
+    _input = typeof input === "string" ? input : null
+    stdinEnabled = true
     exec(argv)
     startGrace.restart()
   }
@@ -61,7 +66,12 @@ Process {
     }
   }
 
-  onStarted: _started = true
+  onStarted: {
+    _started = true
+    if (_input !== null) write(_input)
+    _input = null
+    stdinEnabled = false
+  }
 
   onExited: function(exitCode) {
     _code = exitCode

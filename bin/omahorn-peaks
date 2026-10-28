@@ -2,9 +2,9 @@
 
 # Prints the loudness envelope of each sound, for the waveforms on the pads.
 #
-#   omahorn-peaks <cache-dir> '<json>'
+#   omahorn-peaks <cache-dir>    stdin: [{"id", "path", "duration", "key"}]
 #
-# <json> is an array of {"id", "path", "duration", "key"}; `key` names the
+# The sounds arrive as a JSON array on stdin; `key` names the
 # cache file, so a changed sound gets a fresh envelope. Prints one line per
 # sound as soon as it is ready:
 #
@@ -14,22 +14,23 @@
 # each slice relative to the sound's loudest slice. Peaks would be flat for
 # most clips, which are mastered loud. Audio is decoded at a low sample
 # rate: the envelope needs the shape, not the detail, and long files stay
-# quick.
+# quick. ffmpeg reads each sound on stdin, keeping paths out of argv.
 
 set -uo pipefail
+umask 077
 
 readonly BUCKETS=40
 readonly RATE=2000
 
-cache_dir="${1:?usage: omahorn-peaks <cache-dir> <json>}"
-items="${2:-[]}"
+cache_dir="${1:?usage: omahorn-peaks <cache-dir>, with the sounds as JSON on stdin}"
+items=$(cat)
 mkdir -p "$cache_dir/peaks"
 
 envelope() {
   local file="$1" duration="$2"
   local expected
   expected=$(awk -v d="$duration" -v r="$RATE" 'BEGIN { n = int(d * r); print (n > 0 ? n : r) }')
-  nice -n 10 ffmpeg -nostdin -v error -i "$file" -vn -ac 1 -ar "$RATE" -f s16le - 2>/dev/null \
+  nice -n 10 ffmpeg -nostdin -v error -i file:/dev/stdin -vn -ac 1 -ar "$RATE" -f s16le - <"$file" 2>/dev/null \
     | od -An -v -t d2 -w2 \
     | awk -v n="$BUCKETS" -v expected="$expected" '
         BEGIN { size = int((expected + n - 1) / n); if (size < 1) size = 1 }
@@ -55,7 +56,7 @@ envelope() {
 }
 
 while IFS=$'\t' read -r id path duration key; do
-  [[ -n $id && -n $key && -r $path ]] || continue
+  [[ -n $id && -n $key && -f $path && -r $path ]] || continue
   cache="$cache_dir/peaks/$key.txt"
   if [[ ! -s $cache ]]; then
     values=$(envelope "$path" "${duration:-0}") || continue

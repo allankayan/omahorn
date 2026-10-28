@@ -6,12 +6,14 @@
 # it at its first sample, and is then linked into each app's input ports;
 # PipeWire mixes it with the microphone those apps already hear.
 #
-#   omahorn-inject list [<exclude-json>]
-#   omahorn-inject play <file> <volume> <media-name> [<exclude-json>]
+#   omahorn-inject list                 stdin: <exclude-json>
+#   omahorn-inject play                 stdin: {"file", "volume", "name", "exclude"}
 #
 # `list` prints the apps recording a microphone right now:
 #   [{"node": 123, "app": "Zen", "binary": "zen-bin"}]
-# <exclude-json> is an array of app names or binaries to leave alone.
+# `exclude` is an array of app names or binaries to leave alone.
+#
+# Input arrives on stdin, and pw-play gets the sound on stdin, its name in PIPEWIRE_PROPS.
 #
 # `play` exits 0 once the sound has finished, 3 when no app is recording a
 # microphone, 4 when every app it played into went away mid-sound.
@@ -54,12 +56,15 @@ readonly TARGETS_JQ='
 targets() {
   local exclude="${1:-[]}"
   jq -e 'type == "array"' <<<"$exclude" >/dev/null 2>&1 || exclude='[]'
-  pw-dump 2>/dev/null | jq -c --argjson exclude "$exclude" --argjson builtin "$BUILTIN_EXCLUDE" "$TARGETS_JQ"
+  # The exclude list reaches jq through a descriptor, not its arguments.
+  pw-dump 2>/dev/null | jq -c --slurpfile excluded /dev/fd/3 --argjson builtin "$BUILTIN_EXCLUDE" \
+    "\$excluded[0] as \$exclude | $TARGETS_JQ" 3<<<"$exclude"
 }
 
 cmd_list() {
-  local found
-  found=$(targets "${1:-[]}") || found='[]'
+  local exclude found
+  exclude=$(cat)
+  found=$(targets "${exclude:-[]}") || found='[]'
   jq -c 'map({ node, app, binary }) | unique_by(.app)' <<<"${found:-[]}"
 }
 
@@ -93,9 +98,15 @@ link_into() {
 }
 
 cmd_play() {
-  local file="${1:?usage: omahorn-inject play <file> <volume> <media-name> [<exclude-json>]}"
-  local volume="${2:-1}" name="${3:-Omahorn}" exclude="${4:-[]}"
-  [[ -r $file ]] || { echo "cannot read $file" >&2; exit 1; }
+  local input file volume name exclude
+  input=$(cat)
+  file=$(jq -r '.file // ""' <<<"$input" 2>/dev/null)
+  volume=$(jq -r '.volume // "1"' <<<"$input" 2>/dev/null)
+  name=$(jq -r '.name // "Omahorn"' <<<"$input" 2>/dev/null)
+  exclude=$(jq -c '.exclude // []' <<<"$input" 2>/dev/null)
+  [[ -n $file ]] || { echo "usage: omahorn-inject play, with {\"file\": ...} on stdin" >&2; exit 2; }
+  [[ -e $file ]] || { echo "No such file or directory" >&2; exit 1; }
+  [[ -f $file && -r $file ]] || { echo "Cannot read the sound file" >&2; exit 1; }
 
   name=$(printf '%s' "$name" | tr -d '\000-\037"\\' | cut -c1-96)
   local node="omahorn.inject.$$"
@@ -103,7 +114,7 @@ cmd_play() {
 
   # Unlinked, the player waits at its first sample until it has somewhere
   # to go, so nothing is lost while the links are made.
-  pw-play --target 0 --volume "$volume" -P "$props" "$file" &
+  PIPEWIRE_PROPS="$props" pw-play --target 0 --volume "$volume" /dev/stdin <"$file" &
   local player=$!
   trap 'kill "$player" 2>/dev/null; wait "$player" 2>/dev/null; exit 143' TERM INT HUP
 
@@ -156,7 +167,7 @@ cmd_play() {
 }
 
 case "${1:-}" in
-  list) shift; cmd_list "$@" ;;
-  play) shift; cmd_play "$@" ;;
-  *) sed -n '3,18p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+  list) cmd_list ;;
+  play) cmd_play ;;
+  *) sed -n '3,20p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
 esac

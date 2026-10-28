@@ -10,7 +10,7 @@ test("normalize fills defaults for an empty or broken config", () => {
     assert.equal(c.version, 1)
     assert.deepEqual(c.folders, [{ path: "~/Music/Soundboard", name: "", recursive: true }])
     assert.equal(c.mic, "auto")
-    assert.equal(c.defaultMic, true)
+    assert.equal(c.defaultMic, false)
     assert.equal(c.hotkeys.toggle.keys, "SUPER + CTRL + M")
   }
 })
