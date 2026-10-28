@@ -7,7 +7,7 @@
   "license": "MIT",
   "homepage": "https://github.com/allankayan/omahorn",
   "repository": "https://github.com/allankayan/omahorn",
-  "description": "Soundboard for Omarchy: play sounds into your microphone from a keyboard-first board or global hotkeys.",
+  "description": "A Soundpad alternative for Omarchy: play sounds into your microphone from a keyboard-first board or global hotkeys.",
   "kinds": [
     "service",
     "overlay",

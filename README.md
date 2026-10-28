@@ -1,8 +1,8 @@
 # Omahorn
 
-A soundboard for [Omarchy](https://omarchy.org). Press a key, and a sound plays
-into your microphone: whoever is on the other end of the call, stream or game
-hears it along with your voice.
+A soundboard for [Omarchy](https://omarchy.org), a Linux alternative to
+Soundpad. Press a key, and a sound plays into your microphone: whoever is on the
+other end of the call, stream or game hears it along with your voice.
 
 ![The board](docs/board.png)
 
